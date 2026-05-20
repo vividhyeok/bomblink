@@ -209,8 +209,8 @@ export class Board {
     const connectors = new Set<Direction>();
     const dirs: Direction[] = ["up", "right", "down", "left"];
     
-    // 75% chance for 1 fuse, 25% chance for 2 fuses (branch/splitter)
-    const numConnectors = Math.random() < 0.75 ? 1 : 2;
+    // All bombs have exactly 1 fuse as per original game mechanic
+    const numConnectors = 1;
     
     while (connectors.size < numConnectors) {
       connectors.add(dirs[Math.floor(Math.random() * dirs.length)]);
