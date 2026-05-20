@@ -26,7 +26,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px;
+  padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, #1b2638, #0f1622);
 }
 
@@ -42,7 +42,7 @@ body {
 #game {
   width: 100%;
   aspect-ratio: 240 / 360;
-  max-height: calc(100dvh - 220px);
+  max-height: calc(100dvh - 250px - env(safe-area-inset-bottom, 0px));
   border: 4px solid #000;
   border-radius: 8px;
   background: #1ba1e2;
