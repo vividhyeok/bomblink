@@ -207,39 +207,12 @@ export class Board {
 
   private createBomb(row: number, col: number, spawnDelay: number): Bomb {
     const connectors = new Set<Direction>();
-    
-    // Bias: Connect to left neighbor (highly likely if left has right connector)
-    if (col > 0) {
-      const leftBomb = this.cells[row][col - 1];
-      if (leftBomb && leftBomb.connectors.includes("right")) {
-        if (Math.random() < 0.8) connectors.add("left");
-      } else {
-        if (Math.random() < 0.2) connectors.add("left");
-      }
-    } else {
-      if (Math.random() < 0.4) connectors.add("left");
-    }
-
-    // Bias: Connect to top neighbor
-    if (row > 0) {
-      const topBomb = this.cells[row - 1][col];
-      if (topBomb && topBomb.connectors.includes("down")) {
-        if (Math.random() < 0.8) connectors.add("up");
-      } else {
-        if (Math.random() < 0.3) connectors.add("up");
-      }
-    } else {
-      if (Math.random() < 0.4) connectors.add("up");
-    }
-
-    // Random right and down
-    if (Math.random() < 0.5) connectors.add("right");
-    if (Math.random() < 0.4) connectors.add("down");
-
     const dirs: Direction[] = ["up", "right", "down", "left"];
     
-    // Ensure at least 2 connectors so it looks like a valid piece
-    while (connectors.size < 2) {
+    // 75% chance for 1 fuse, 25% chance for 2 fuses (branch/splitter)
+    const numConnectors = Math.random() < 0.75 ? 1 : 2;
+    
+    while (connectors.size < numConnectors) {
       connectors.add(dirs[Math.floor(Math.random() * dirs.length)]);
     }
 

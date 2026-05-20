@@ -47,7 +47,8 @@ export function canConnect(a: Bomb | null, b: Bomb | null, directionFromA: Direc
     return false;
   }
 
-  return a.connectors.includes(directionFromA) && b.connectors.includes(OPPOSITE[directionFromA]);
+  // Unidirectional: A connects to B if A has a connector pointing to B.
+  return a.connectors.includes(directionFromA);
 }
 
 export function incomingDirectionForFlame(side: "left" | "right"): Direction {

@@ -196,11 +196,11 @@ export class BoardRenderer {
         const right = cells[row]?.[col + 1] ?? null;
         const down = cells[row + 1]?.[col] ?? null;
 
-        if (right && canConnect(bomb, right, "right")) {
+        if (right && (canConnect(bomb, right, "right") || canConnect(right, bomb, "left"))) {
           this.drawFuseBridge(ctx, layout, row, col, "right");
         }
 
-        if (down && canConnect(bomb, down, "down")) {
+        if (down && (canConnect(bomb, down, "down") || canConnect(down, bomb, "up"))) {
           this.drawFuseBridge(ctx, layout, row, col, "down");
         }
       }
