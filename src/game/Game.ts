@@ -225,6 +225,9 @@ export class Game {
   }
 
   private updateFlamePassing(dt: number): void {
+    this.consumeMoveInput();
+    this.consumeRotationInput();
+
     if (!this.flame) {
       this.setPhase("idle");
       return;
@@ -249,12 +252,18 @@ export class Game {
   }
 
   private updateFuseBurning(dt: number): void {
+    this.consumeMoveInput();
+    this.consumeRotationInput();
+
     if (this.activeChains.length === 0) {
       this.setPhase("exploding");
     }
   }
 
   private updateExploding(): void {
+    this.consumeMoveInput();
+    this.consumeRotationInput();
+
     if (this.phaseTimer < 0.16) {
       return;
     }
