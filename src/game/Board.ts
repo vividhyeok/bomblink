@@ -209,8 +209,14 @@ export class Board {
     const connectors = new Set<Direction>();
     const dirs: Direction[] = ["up", "right", "down", "left"];
     
-    // All bombs have exactly 1 fuse as per original game mechanic
-    const numConnectors = 1;
+    const r = Math.random();
+    let numConnectors = 2; // Default to pipes/corners
+    
+    if (r < 0.25) {
+      numConnectors = 1; // 25% chance of dead ends (1 fuse)
+    } else if (r > 0.9) {
+      numConnectors = 3; // 10% chance of 3-way splitters
+    }
     
     while (connectors.size < numConnectors) {
       connectors.add(dirs[Math.floor(Math.random() * dirs.length)]);
