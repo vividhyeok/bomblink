@@ -21,9 +21,16 @@ export class Board {
     this.nextId = 1;
     this.randomSeed = 7229;
     const firstFilledRow = Math.max(0, this.layout.rows - startingRows);
-    this.cells = Array.from({ length: this.layout.rows }, (_, row) =>
-      Array.from({ length: this.layout.cols }, (_, col) => (row >= firstFilledRow ? this.createBomb(row, col, 0) : null))
-    );
+    
+    this.cells = Array.from({ length: this.layout.rows }, () => Array(this.layout.cols).fill(null));
+    
+    for (let row = 0; row < this.layout.rows; row++) {
+      for (let col = 0; col < this.layout.cols; col++) {
+        if (row >= firstFilledRow) {
+          this.cells[row][col] = this.createBomb(row, col, 0);
+        }
+      }
+    }
   }
 
   get(row: number, col: number): Bomb | null {

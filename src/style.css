@@ -30,8 +30,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Massive bottom padding to push UI above floating browser toolbars */
-  padding: 16px 16px calc(80px + env(safe-area-inset-bottom, 0px));
+  /* Moderate bottom padding to push UI above floating toolbars without being excessive */
+  padding: 16px 16px calc(30px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, #1b2638, #0f1622);
 }
 
