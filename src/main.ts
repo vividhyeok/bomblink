@@ -3,6 +3,12 @@ import { Game } from "./game/Game";
 import { KeyboardInput } from "./input/KeyboardInput";
 import { Renderer } from "./render/Renderer";
 
+function setAppHeight() {
+  document.documentElement.style.setProperty("--app-height", `${window.innerHeight}px`);
+}
+window.addEventListener("resize", setAppHeight);
+setAppHeight();
+
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 
 if (!canvas) {
