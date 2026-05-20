@@ -41,6 +41,44 @@ export class Renderer {
 
     this.drawFooter(snapshot);
     this.drawOverlay(snapshot);
+    
+    // Draw COMBO popup during exploding/falling phases
+    if (snapshot.combo >= 2 && (snapshot.phase === "exploding" || snapshot.phase === "falling" || snapshot.phase === "fuseBurning")) {
+      this.drawComboPopup(snapshot);
+    }
+    
+    ctx.restore();
+  }
+
+  private drawComboPopup(snapshot: GameSnapshot): void {
+    const ctx = this.ctx;
+    const cx = snapshot.canvasWidth / 2;
+    const cy = snapshot.layout.y + snapshot.layout.rows * snapshot.layout.cellSize * 0.4; // Slightly above center
+
+    // Add a slight bounce based on time
+    const bounce = Math.sin(performance.now() / 80) * 3;
+
+    ctx.save();
+    ctx.translate(cx, cy + bounce);
+    
+    // Text styling
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 24px 'Trebuchet MS', Arial, sans-serif";
+    
+    // COMBO !!
+    ctx.fillStyle = "#ffe23e";
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 4;
+    ctx.strokeText("COMBO !!", 0, -15);
+    ctx.fillText("COMBO !!", 0, -15);
+
+    // Number
+    ctx.font = "bold 36px 'Trebuchet MS', Arial, sans-serif";
+    ctx.fillStyle = "#ff6b3e";
+    ctx.strokeText(snapshot.combo.toString(), 0, 15);
+    ctx.fillText(snapshot.combo.toString(), 0, 15);
+
     ctx.restore();
   }
 
