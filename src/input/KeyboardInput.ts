@@ -169,7 +169,7 @@ export class KeyboardInput {
     // Handle continuous joystick hold
     if (this.activeJoyAction === action) {
       const now = performance.now();
-      if (now - this.lastJoyActionTime > 140) {
+      if (now - this.lastJoyActionTime > 180) { // Slower repeat rate for grid feel
         this.lastJoyActionTime = now;
         return true;
       }

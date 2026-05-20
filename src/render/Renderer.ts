@@ -42,8 +42,8 @@ export class Renderer {
     this.drawFooter(snapshot);
     this.drawOverlay(snapshot);
     
-    // Draw COMBO popup during exploding/falling phases
-    if (snapshot.combo >= 2 && (snapshot.phase === "exploding" || snapshot.phase === "falling" || snapshot.phase === "fuseBurning")) {
+    // Draw COMBO popup during exploding/falling phases for large chains
+    if (snapshot.combo >= 4 && (snapshot.phase === "exploding" || snapshot.phase === "falling" || snapshot.phase === "fuseBurning")) {
       this.drawComboPopup(snapshot);
     }
     

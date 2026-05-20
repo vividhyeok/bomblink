@@ -38,7 +38,7 @@ const BOARD_LAYOUT: BoardLayout = {
 };
 
 const HUD_LABELS: HudLabel[] = ["FIRE", "FLAMES", "TOTAL", "ATTACK", "LEFT"];
-const STARTING_ROWS = 4;
+const STARTING_ROWS = 6;
 const DEATH_ROW = 0;
 const FIRST_FLAME_GRACE = 12;
 const INITIAL_PRESSURE_DELAY = 18;
@@ -60,6 +60,7 @@ export class Game {
   private pressureTimer = INITIAL_PRESSURE_DELAY;
   private gameplayTime = 0;
   private flameSide: FlameSide = Math.random() < 0.5 ? "left" : "right";
+  private flameHistory: FlameSide[] = [];
   private chain: ChainNode[] = [];
   private activeChains: { nodes: ChainNode[]; index: number; timer: number }[] = [];
   private chainIndex = 0;
@@ -299,6 +300,20 @@ export class Game {
       this.hudLabelIndex = (this.hudLabelIndex + 1) % HUD_LABELS.length;
     }
 
+    if (this.phase === "result" || this.phase === "gameOver") {
+      if (this.phaseTimer > 1.0) {
+        if (
+          this.input.consume("fire") ||
+          this.input.consume("rotateClockwise") ||
+          this.input.consume("rotateCounterClockwise") ||
+          this.input.consume("restart")
+        ) {
+          this.reset();
+          return;
+        }
+      }
+    }
+
     if (this.input.consume("restart")) {
       this.reset();
       return;
@@ -366,7 +381,7 @@ export class Game {
     }
 
     this.sound.rotate();
-    this.setPhase("rotating");
+    // Do NOT setPhase("rotating") because it breaks movement during explosions!
   }
 
   private startFlame(side: FlameSide): void {
@@ -533,7 +548,23 @@ export class Game {
   }
 
   private scheduleNextFlame(delay = this.nextFlameDelay()): void {
-    this.flameSide = Math.random() < 0.5 ? "left" : "right";
+    let nextSide: FlameSide = Math.random() < 0.5 ? "left" : "right";
+
+    // Enforce 2-in-a-row rule
+    if (this.flameHistory.length >= 2) {
+      const last = this.flameHistory[this.flameHistory.length - 1];
+      const prev = this.flameHistory[this.flameHistory.length - 2];
+      if (last === prev) {
+        nextSide = last === "left" ? "right" : "left";
+      }
+    }
+
+    this.flameSide = nextSide;
+    this.flameHistory.push(nextSide);
+    if (this.flameHistory.length > 5) {
+      this.flameHistory.shift();
+    }
+
     this.nextFlameRow = null;
     this.nextFlameTimer = delay;
   }
@@ -594,6 +625,7 @@ export class Game {
     this.pressureTimer = INITIAL_PRESSURE_DELAY;
     this.gameplayTime = 0;
     this.flameSide = Math.random() < 0.5 ? "left" : "right";
+    this.flameHistory = [];
     this.nextFlameRow = null;
     this.chain = [];
     this.activeChains = [];
