@@ -20,6 +20,7 @@ export class BoardRenderer {
   ): void {
     this.drawFrame(ctx, layout);
     this.drawCells(ctx, layout);
+    this.drawPreviewRow(ctx, layout);
     this.drawDangerLine(ctx, layout, dangerRow, dangerWarning && Math.sin(cursor.blink * 9) > 0);
     this.drawNextFlameMarker(ctx, layout, nextFlameRow, nextFlameSide, phase, fireWarning);
     this.drawFuseBridges(ctx, layout, cells);
@@ -38,41 +39,29 @@ export class BoardRenderer {
   }
 
   private drawFrame(ctx: CanvasRenderingContext2D, layout: BoardLayout): void {
-    // Top inner shadow/border
     ctx.fillStyle = "#1177b9";
     ctx.fillRect(layout.x - 2, layout.y - 2, layout.cols * layout.cellSize + 4, layout.rows * layout.cellSize + 4);
-    
-    // Play area background
     ctx.fillStyle = "#1ba1e2";
     ctx.fillRect(layout.x, layout.y, layout.cols * layout.cellSize, layout.rows * layout.cellSize);
 
-    // Draw Side Columns (Left & Right)
     const colY = layout.y - 8;
     const colH = layout.rows * layout.cellSize + 16;
-
-    // Left Column (x = 24 to 40)
     ctx.fillStyle = "#fadb98";
     ctx.fillRect(24, colY, 16, colH);
     ctx.strokeStyle = "#c08038";
     ctx.lineWidth = 1;
     ctx.strokeRect(24, colY, 16, colH);
-
-    // Right Column (x = 200 to 216)
     ctx.fillStyle = "#fadb98";
     ctx.fillRect(200, colY, 16, colH);
     ctx.strokeRect(200, colY, 16, colH);
 
-    // Draw Notches on Left and Right Columns corresponding to each row
     ctx.fillStyle = "#d2974b";
     for (let r = 0; r < layout.rows; r += 1) {
       const centerY = layout.y + r * layout.cellSize + layout.cellSize / 2;
-      // Left notch
       ctx.fillRect(26, centerY - 1, 12, 2);
-      // Right notch
       ctx.fillRect(202, centerY - 1, 12, 2);
     }
-    
-    // Bottom border/base
+
     ctx.fillStyle = "#e09033";
     ctx.fillRect(24, colY + colH, 192, 16);
     ctx.fillStyle = "#c06b18";
@@ -80,8 +69,6 @@ export class BoardRenderer {
   }
 
   private drawCells(ctx: CanvasRenderingContext2D, layout: BoardLayout): void {
-    // The original game has a very subtle dot pattern or no visible grid.
-    // Let's just draw very faint lines to separate cells slightly.
     ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
     ctx.lineWidth = 1;
 
@@ -102,31 +89,41 @@ export class BoardRenderer {
     }
   }
 
+  private drawPreviewRow(ctx: CanvasRenderingContext2D, layout: BoardLayout): void {
+    const row = layout.rows - 1;
+    const y = layout.y + row * layout.cellSize;
+    ctx.fillStyle = "rgba(3, 34, 61, 0.24)";
+    ctx.fillRect(layout.x, y, layout.cols * layout.cellSize, layout.cellSize);
+    ctx.strokeStyle = "rgba(255, 236, 150, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(layout.x, y);
+    ctx.lineTo(layout.x + layout.cols * layout.cellSize, y);
+    ctx.stroke();
+  }
+
   private drawCursor(ctx: CanvasRenderingContext2D, layout: BoardLayout, cursor: Cursor): void {
     const x = layout.x + cursor.col * layout.cellSize + layout.cellSize / 2;
     const y = layout.y + cursor.row * layout.cellSize + layout.cellSize / 2;
     const radius = layout.cellSize * 0.48;
     const flash = Math.sin(cursor.blink * 11) > 0 ? "#ffd97d" : "#ffffff";
 
-    // Draw dark shadow outer circle
     ctx.strokeStyle = "#1e1b18";
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Draw main cream-white/yellow inner circle
     ctx.strokeStyle = flash;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Draw small notches/dots around the circle to give it a rope/lasso texture
     ctx.fillStyle = flash;
     const dots = 8;
     for (let i = 0; i < dots; i += 1) {
-      const angle = (i / dots) * Math.PI * 2 + (cursor.blink ?? 0) * 1.5;
+      const angle = (i / dots) * Math.PI * 2 + cursor.blink * 1.5;
       const dotX = x + Math.cos(angle) * radius;
       const dotY = y + Math.sin(angle) * radius;
       ctx.beginPath();
@@ -142,7 +139,6 @@ export class BoardRenderer {
     blink: boolean
   ): void {
     const y = layout.y + dangerRow * layout.cellSize + 1;
-
     ctx.strokeStyle = blink ? "#ffec62" : "rgb(255 96 72 / 0.65)";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 3]);
@@ -169,14 +165,10 @@ export class BoardRenderer {
     const topY = layout.y - 14;
     const time = performance.now() / 1000;
     const blink = fireWarning ? Math.floor(time * 16) % 2 === 0 : true;
-
-    if (!blink) {
-      return;
-    }
+    if (!blink) return;
 
     ctx.fillStyle = fireWarning ? "#ff3b30" : "#ff9500";
     ctx.beginPath();
-    // Triangle pointing down at the top of the column
     ctx.moveTo(x - 6, topY);
     ctx.lineTo(x + 6, topY);
     ctx.lineTo(x, topY + 8);
@@ -185,16 +177,14 @@ export class BoardRenderer {
   }
 
   private drawFuseBridges(ctx: CanvasRenderingContext2D, layout: BoardLayout, cells: Cell[][]): void {
-    for (let row = 0; row < layout.rows; row += 1) {
+    const previewRow = layout.rows - 1;
+    for (let row = 0; row < previewRow; row += 1) {
       for (let col = 0; col < layout.cols; col += 1) {
         const bomb = cells[row][col];
-
-        if (!bomb) {
-          continue;
-        }
+        if (!bomb) continue;
 
         const right = cells[row]?.[col + 1] ?? null;
-        const down = cells[row + 1]?.[col] ?? null;
+        const down = row + 1 < previewRow ? cells[row + 1]?.[col] ?? null : null;
 
         if (right && (canConnect(bomb, right, "right") || canConnect(right, bomb, "left"))) {
           this.drawFuseBridge(ctx, layout, row, col, "right");
