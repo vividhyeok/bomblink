@@ -1,7 +1,14 @@
 import type { Phase } from "../game/Phase";
-import { canConnect } from "../game/Rules";
-import type { BoardLayout, Cell, Cursor, Direction, FlameSide } from "../game/Types";
+import { DELTA } from "../game/Rules";
+import type { BoardLayout, Bomb, Cell, Cursor, Direction, FlameSide } from "../game/Types";
 import { BombRenderer } from "./BombRenderer";
+
+const LINKED_FUSE = "#fff7bd";
+const LINKED_OUTLINE = "#a72429";
+const FIRE_FUSE = "#ffd24f";
+const FIRE_OUTLINE = "#c34a17";
+const OPEN_FUSE = "#7d4249";
+const OPEN_OUTLINE = "#3b2025";
 
 export class BoardRenderer {
   private readonly bombRenderer = new BombRenderer();
@@ -23,7 +30,11 @@ export class BoardRenderer {
     this.drawPreviewRow(ctx, layout);
     this.drawDangerLine(ctx, layout, dangerRow, dangerWarning && Math.sin(cursor.blink * 9) > 0);
     this.drawNextFlameMarker(ctx, layout, nextFlameRow, nextFlameSide, phase, fireWarning);
-    this.drawFuseBridges(ctx, layout, cells);
+
+    // Draw every fuse as owned by exactly one bomb. A full bright fuse means it
+    // actually reaches a bomb; a gold fuse reaches the side flame rail; a dark
+    // short fuse ends in open space. This avoids the old ambiguous shared bridges.
+    this.drawFuseNetwork(ctx, layout, cells);
 
     for (const row of cells) {
       for (const bomb of row) {
@@ -34,7 +45,7 @@ export class BoardRenderer {
     }
 
     if (phase !== "banner" && phase !== "ready" && phase !== "gameOver") {
-      this.drawCursor(ctx, layout, cursor);
+      this.drawCursor(ctx, layout, cursor, cells);
     }
   }
 
@@ -69,7 +80,7 @@ export class BoardRenderer {
   }
 
   private drawCells(ctx: CanvasRenderingContext2D, layout: BoardLayout): void {
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
     ctx.lineWidth = 1;
 
     for (let col = 1; col < layout.cols; col += 1) {
@@ -92,44 +103,186 @@ export class BoardRenderer {
   private drawPreviewRow(ctx: CanvasRenderingContext2D, layout: BoardLayout): void {
     const row = layout.rows - 1;
     const y = layout.y + row * layout.cellSize;
-    ctx.fillStyle = "rgba(3, 34, 61, 0.24)";
+    ctx.fillStyle = "rgba(3, 34, 61, 0.34)";
     ctx.fillRect(layout.x, y, layout.cols * layout.cellSize, layout.cellSize);
-    ctx.strokeStyle = "rgba(255, 236, 150, 0.9)";
+    ctx.strokeStyle = "rgba(255, 236, 150, 0.95)";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(layout.x, y);
     ctx.lineTo(layout.x + layout.cols * layout.cellSize, y);
     ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 246, 184, 0.82)";
+    ctx.font = 'bold 7px "Courier New", monospace';
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("NEXT", layout.x + layout.cols * layout.cellSize - 3, y + layout.cellSize - 2);
+    ctx.textAlign = "left";
   }
 
-  private drawCursor(ctx: CanvasRenderingContext2D, layout: BoardLayout, cursor: Cursor): void {
+  private drawFuseNetwork(ctx: CanvasRenderingContext2D, layout: BoardLayout, cells: Cell[][]): void {
+    const previewRow = layout.rows - 1;
+
+    for (let row = 0; row < layout.rows; row += 1) {
+      for (let col = 0; col < layout.cols; col += 1) {
+        const bomb = cells[row]?.[col] ?? null;
+        const direction = bomb?.connectors[0];
+        if (!bomb || !direction) continue;
+        this.drawDirectionalFuse(ctx, layout, cells, bomb, direction, row < previewRow);
+      }
+    }
+  }
+
+  private drawDirectionalFuse(
+    ctx: CanvasRenderingContext2D,
+    layout: BoardLayout,
+    cells: Cell[][],
+    bomb: Bomb,
+    direction: Direction,
+    active: boolean
+  ): void {
+    const delta = DELTA[direction];
+    const startRadius = layout.cellSize * (bomb.kind === "bonus" ? 0.35 : 0.31);
+    const start = offsetPoint(bomb.visualX, bomb.visualY, direction, startRadius);
+    const previewRow = layout.rows - 1;
+    const targetRow = bomb.row + delta.row;
+    const targetCol = bomb.col + delta.col;
+
+    let status: "linked" | "fire" | "open" = "open";
+    let end = offsetPoint(bomb.visualX, bomb.visualY, direction, layout.cellSize * 0.48);
+
+    if (active && targetRow >= 0 && targetRow < previewRow && targetCol >= 0 && targetCol < layout.cols) {
+      const target = cells[targetRow]?.[targetCol] ?? null;
+      if (target) {
+        status = "linked";
+        const targetRadius = layout.cellSize * (target.kind === "bonus" ? 0.36 : 0.32);
+        end = offsetPoint(target.visualX, target.visualY, opposite(direction), targetRadius + 1);
+      }
+    } else if (active && bomb.col === 0 && direction === "left") {
+      status = "fire";
+      end = { x: layout.x - 10, y: bomb.visualY };
+    } else if (active && bomb.col === layout.cols - 1 && direction === "right") {
+      status = "fire";
+      end = { x: layout.x + layout.cols * layout.cellSize + 10, y: bomb.visualY };
+    }
+
+    const outline = status === "linked" ? LINKED_OUTLINE : status === "fire" ? FIRE_OUTLINE : OPEN_OUTLINE;
+    const center = status === "linked" ? LINKED_FUSE : status === "fire" ? FIRE_FUSE : OPEN_FUSE;
+
+    ctx.save();
+    if (!active) ctx.globalAlpha = 0.42;
+
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = status === "open" ? 5 : 7;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = center;
+    ctx.lineWidth = status === "open" ? 2 : 3;
+    if (status === "open") ctx.setLineDash([3, 2]);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // The triangular tip makes ownership/direction explicit even when two pieces
+    // sit next to each other. It points where THIS bomb's fuse is targeting.
+    this.drawFuseTip(ctx, end.x, end.y, direction, status);
+
+    if (status === "linked") {
+      ctx.strokeStyle = "rgba(255,255,220,0.95)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(end.x, end.y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (status === "open") {
+      ctx.fillStyle = "#29171b";
+      ctx.beginPath();
+      ctx.arc(end.x, end.y, 2.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  private drawFuseTip(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    direction: Direction,
+    status: "linked" | "fire" | "open"
+  ): void {
+    const forward = vector(direction);
+    const side = { x: -forward.y, y: forward.x };
+    const size = status === "open" ? 3.5 : 4.5;
+    const backX = x - forward.x * size * 1.5;
+    const backY = y - forward.y * size * 1.5;
+
+    ctx.fillStyle = status === "linked" ? "#fffbe0" : status === "fire" ? "#ffe15c" : "#8f5057";
+    ctx.beginPath();
+    ctx.moveTo(x + forward.x * 1.5, y + forward.y * 1.5);
+    ctx.lineTo(backX + side.x * size, backY + side.y * size);
+    ctx.lineTo(backX - side.x * size, backY - side.y * size);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  private drawCursor(ctx: CanvasRenderingContext2D, layout: BoardLayout, cursor: Cursor, cells: Cell[][]): void {
     const x = layout.x + cursor.col * layout.cellSize + layout.cellSize / 2;
     const y = layout.y + cursor.row * layout.cellSize + layout.cellSize / 2;
     const radius = layout.cellSize * 0.48;
-    const flash = Math.sin(cursor.blink * 11) > 0 ? "#ffd97d" : "#ffffff";
+    const bomb = cells[cursor.row]?.[cursor.col] ?? null;
+    const status = bomb ? this.fuseStatus(layout, cells, bomb) : "empty";
+    const flash = Math.sin(cursor.blink * 11) > 0;
 
-    ctx.strokeStyle = "#1e1b18";
-    ctx.lineWidth = 4;
+    const statusColor =
+      status === "linked" ? "#9cff82" :
+      status === "fire" ? "#ffd85a" :
+      status === "open" ? "#ff9c91" : "#ffffff";
+
+    ctx.strokeStyle = "#121a22";
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.strokeStyle = flash;
+    ctx.strokeStyle = flash ? statusColor : "rgba(255,255,255,0.78)";
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.fillStyle = flash;
-    const dots = 8;
-    for (let i = 0; i < dots; i += 1) {
-      const angle = (i / dots) * Math.PI * 2 + cursor.blink * 1.5;
-      const dotX = x + Math.cos(angle) * radius;
-      const dotY = y + Math.sin(angle) * radius;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, 1.8, 0, Math.PI * 2);
-      ctx.fill();
+    // Three tiny bars at the top of the selection ring communicate state without
+    // adding text over the compact original-style playfield.
+    ctx.fillStyle = statusColor;
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.fillRect(x + i * 5 - 1.5, y - radius - 4, 3, 3);
     }
+  }
+
+  private fuseStatus(
+    layout: BoardLayout,
+    cells: Cell[][],
+    bomb: Bomb
+  ): "linked" | "fire" | "open" {
+    const direction = bomb.connectors[0];
+    if (!direction) return "open";
+    const delta = DELTA[direction];
+    const row = bomb.row + delta.row;
+    const col = bomb.col + delta.col;
+    const previewRow = layout.rows - 1;
+
+    if (row >= 0 && row < previewRow && col >= 0 && col < layout.cols && cells[row]?.[col]) {
+      return "linked";
+    }
+    if ((bomb.col === 0 && direction === "left") || (bomb.col === layout.cols - 1 && direction === "right")) {
+      return "fire";
+    }
+    return "open";
   }
 
   private drawDangerLine(
@@ -157,7 +310,7 @@ export class BoardRenderer {
     phase: Phase,
     fireWarning: boolean
   ): void {
-    if (phase === "banner" || phase === "ready" || phase === "flamePassing") {
+    if (phase === "banner" || phase === "ready" || phase === "flamePassing" || phase === "fuseBurning") {
       return;
     }
 
@@ -175,66 +328,27 @@ export class BoardRenderer {
     ctx.closePath();
     ctx.fill();
   }
+}
 
-  private drawFuseBridges(ctx: CanvasRenderingContext2D, layout: BoardLayout, cells: Cell[][]): void {
-    const previewRow = layout.rows - 1;
-    for (let row = 0; row < previewRow; row += 1) {
-      for (let col = 0; col < layout.cols; col += 1) {
-        const bomb = cells[row][col];
-        if (!bomb) continue;
-
-        const right = cells[row]?.[col + 1] ?? null;
-        const down = row + 1 < previewRow ? cells[row + 1]?.[col] ?? null : null;
-
-        if (right && (canConnect(bomb, right, "right") || canConnect(right, bomb, "left"))) {
-          this.drawFuseBridge(ctx, layout, row, col, "right");
-        }
-
-        if (down && (canConnect(bomb, down, "down") || canConnect(down, bomb, "up"))) {
-          this.drawFuseBridge(ctx, layout, row, col, "down");
-        }
-      }
-    }
+function opposite(direction: Direction): Direction {
+  switch (direction) {
+    case "up": return "down";
+    case "right": return "left";
+    case "down": return "up";
+    case "left": return "right";
   }
+}
 
-  private drawFuseBridge(
-    ctx: CanvasRenderingContext2D,
-    layout: BoardLayout,
-    row: number,
-    col: number,
-    direction: Extract<Direction, "right" | "down">
-  ): void {
-    const fromX = layout.x + col * layout.cellSize + layout.cellSize / 2;
-    const fromY = layout.y + row * layout.cellSize + layout.cellSize / 2;
-    const half = Math.floor(layout.cellSize * 0.34);
-    const toX = direction === "right" ? fromX + layout.cellSize : fromX;
-    const toY = direction === "down" ? fromY + layout.cellSize : fromY;
-    const startX = direction === "right" ? fromX + half : fromX;
-    const startY = direction === "down" ? fromY + half : fromY;
-    const endX = direction === "right" ? toX - half : toX;
-    const endY = direction === "down" ? toY - half : toY;
-
-    ctx.strokeStyle = "#a81d22";
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    ctx.strokeStyle = "#fff0d8";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    ctx.fillStyle = "#e5362f";
-    const steps = 3;
-    for (let i = 1; i <= steps; i += 1) {
-      const t = i / (steps + 1);
-      const x = Math.round(startX + (endX - startX) * t);
-      const y = Math.round(startY + (endY - startY) * t);
-      ctx.fillRect(x - 2, y - 2, 4, 4);
-    }
+function vector(direction: Direction): { x: number; y: number } {
+  switch (direction) {
+    case "up": return { x: 0, y: -1 };
+    case "right": return { x: 1, y: 0 };
+    case "down": return { x: 0, y: 1 };
+    case "left": return { x: -1, y: 0 };
   }
+}
+
+function offsetPoint(x: number, y: number, direction: Direction, distance: number): { x: number; y: number } {
+  const v = vector(direction);
+  return { x: x + v.x * distance, y: y + v.y * distance };
 }
