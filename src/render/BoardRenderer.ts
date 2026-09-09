@@ -31,9 +31,8 @@ export class BoardRenderer {
     this.drawDangerLine(ctx, layout, dangerRow, dangerWarning && Math.sin(cursor.blink * 9) > 0);
     this.drawNextFlameMarker(ctx, layout, nextFlameRow, nextFlameSide, phase, fireWarning);
 
-    // Draw every fuse as owned by exactly one bomb. A full bright fuse means it
-    // actually reaches a bomb; a gold fuse reaches the side flame rail; a dark
-    // short fuse ends in open space. This avoids the old ambiguous shared bridges.
+    // Each bomb visibly owns exactly one fuse. The line is classified by where
+    // THAT fuse points, not by a symmetric shared-pipe rule.
     this.drawFuseNetwork(ctx, layout, cells);
 
     for (const row of cells) {
@@ -154,6 +153,10 @@ export class BoardRenderer {
     if (active && targetRow >= 0 && targetRow < previewRow && targetCol >= 0 && targetCol < layout.cols) {
       const target = cells[targetRow]?.[targetCol] ?? null;
       if (target) {
+        // Directed-chain semantics: this fuse is genuinely usable only if it
+        // points to a bomb that can be the currently exploding target. Special
+        // bombs still have a fuse target for ignition/chain purposes, even though
+        // they cannot be rotated themselves.
         status = "linked";
         const targetRadius = layout.cellSize * (target.kind === "bonus" ? 0.36 : 0.32);
         end = offsetPoint(target.visualX, target.visualY, opposite(direction), targetRadius + 1);
@@ -189,8 +192,6 @@ export class BoardRenderer {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // The triangular tip makes ownership/direction explicit even when two pieces
-    // sit next to each other. It points where THIS bomb's fuse is targeting.
     this.drawFuseTip(ctx, end.x, end.y, direction, status);
 
     if (status === "linked") {
@@ -256,8 +257,6 @@ export class BoardRenderer {
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Three tiny bars at the top of the selection ring communicate state without
-    // adding text over the compact original-style playfield.
     ctx.fillStyle = statusColor;
     for (let i = -1; i <= 1; i += 1) {
       ctx.fillRect(x + i * 5 - 1.5, y - radius - 4, 3, 3);
