@@ -3,12 +3,24 @@ import type { Phase } from "./Phase";
 export type Direction = "up" | "right" | "down" | "left";
 
 export type BombState = "normal" | "ignited" | "exploding" | "empty";
+export type BombKind = "normal" | "bonus" | "obstruction";
+export type BonusSize = 1 | 2 | 3 | 4;
 
 export type Bomb = {
   id: number;
   row: number;
   col: number;
+  /**
+   * The original normal piece has one directional fuse. This remains an array for
+   * renderer/rule compatibility; reconstructed gameplay generates one direction.
+   */
   connectors: Direction[];
+  kind: BombKind;
+  /**
+   * Normal/obstruction pieces use 1. Bonus pieces use 2/3/4 to preserve the
+   * documented long-bomb scoring weight until exact multi-cell geometry is verified.
+   */
+  bonusSize: BonusSize;
   visualX: number;
   visualY: number;
   targetX: number;
@@ -43,6 +55,7 @@ export type FlameEvent = {
   age: number;
   duration: number;
   scannedRows: Set<number>;
+  /** The current ignition point while this same flame drop is paused. */
   hit: { row: number; col: number } | null;
 };
 
