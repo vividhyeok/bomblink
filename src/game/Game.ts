@@ -348,7 +348,7 @@ export class Game {
   }
 
   private scanFlameHit(): void {
-    if (!this.flame) return;
+    if (!this.flame || this.flame.hit) return;
     const { side, progress, row: targetRow } = this.flame;
     const startY = this.board.layout.y - 12;
     const endY = this.board.layout.y + targetRow * this.board.layout.cellSize + this.board.layout.cellSize / 2;
@@ -364,9 +364,13 @@ export class Game {
       const bomb = this.board.get(r, col);
       const requiredConnector = side === "left" ? "left" : "right";
       if (bomb && bomb.state === "normal" && bomb.connectors.includes(requiredConnector)) {
+        this.flame.hit = { row: r, col };
+        this.flame.progress = 1;
+        this.flame.age = this.flame.duration;
         this.board.setBombState(bomb, "ignited");
         this.sound.ignite();
         this.startChain(r, col);
+        return;
       }
     }
   }
