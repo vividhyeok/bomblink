@@ -187,16 +187,19 @@ export function findCombinedConnectedChain(cells: Cell[][], starts: { row: numbe
 }
 
 /**
- * Reconstructed original scoring curve documented by surviving BombLink guides:
- * base 100 points per exploded bomb plus a quadratic combo bonus from 3 onward.
+ * Reconstructed feature-phone score curve:
+ * 100 * exploded-unit count + 100 * max(0, combo - 2)^2.
+ *
+ * `explodedUnits` can exceed the number of logical cells when a reconstructed
+ * bonus/big bomb represents a documented 2/3/4-length piece.
  */
-export function scoreForExplosion(count: number): number {
-  if (count <= 0) {
+export function scoreForExplosion(combo: number, explodedUnits = combo): number {
+  if (combo <= 0 || explodedUnits <= 0) {
     return 0;
   }
 
-  const comboBonusBase = Math.max(0, count - 2);
-  return count * 100 + comboBonusBase * comboBonusBase * 100;
+  const comboBonusBase = Math.max(0, combo - 2);
+  return explodedUnits * 100 + comboBonusBase * comboBonusBase * 100;
 }
 
 function key(row: number, col: number): string {
