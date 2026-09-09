@@ -19,7 +19,7 @@ export class BombRenderer {
     if (bomb.kind === "obstruction") {
       this.drawObstruction(ctx, cellSize, pulse, bomb.state === "ignited");
     } else if (bomb.kind === "bonus") {
-      this.drawBonus(ctx, cellSize, pulse, bomb.bonusSize, bomb.state === "ignited");
+      this.drawBonusSegment(ctx, bomb, cellSize, pulse, bomb.state === "ignited");
     } else {
       this.drawNormal(ctx, cellSize, pulse, bomb.state === "ignited");
     }
@@ -63,8 +63,9 @@ export class BombRenderer {
     ctx.fillStyle = "#203a48";
     ctx.fillRect(-half * 0.17, -half * 0.86, half * 0.34, half * 0.25);
 
-    // Fixed-piece mark: visually explains why rotation input is rejected.
-    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    // Fixed-orientation mark. The square bomb is intentionally non-rotatable;
+    // its fuse can still change vertically when the whole bomb falls a cell.
+    ctx.strokeStyle = "rgba(255,255,255,0.88)";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-half * 0.42, half * 0.18);
@@ -74,44 +75,98 @@ export class BombRenderer {
     ctx.stroke();
   }
 
-  private drawBonus(
-    ctx: CanvasRenderingContext2D,
-    cellSize: number,
-    pulse: number,
-    size: number,
-    ignited: boolean
-  ): void {
-    const radius = cellSize * 0.36 + pulse;
+  /**
+   * A B2/B3/B4 is one horizontal rigid bomb. Each logical cell draws one segment
+   * of the same orange body; only the anchor segment carries the external fuse and
+   * label, so the player does not mistake the piece for several independent bombs.
+   */
+  private drawBonusSegment(ctx: CanvasRenderingContext2D, bomb: Bomb, cellSize: number, pulse: number, ignited: boolean): void {
+    const halfH = cellSize * 0.285 + pulse * 0.35;
+    const halfW = cellSize * 0.5 + 0.8;
+    const first = bomb.pieceIndex === 0;
+    const last = bomb.pieceIndex === bomb.bonusSize - 1;
+
     ctx.fillStyle = ignited ? "#fff06a" : "#ffb329";
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(-halfW, -halfH, halfW * 2, halfH * 2);
+
+    // Rounded end caps make adjacent segments read as one long capsule.
+    if (first) {
+      ctx.beginPath();
+      ctx.arc(-halfW + halfH, 0, halfH, Math.PI / 2, Math.PI * 1.5);
+      ctx.lineTo(-halfW + halfH, -halfH);
+      ctx.lineTo(0, -halfH);
+      ctx.lineTo(0, halfH);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (last) {
+      ctx.beginPath();
+      ctx.arc(halfW - halfH, 0, halfH, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(halfW - halfH, halfH);
+      ctx.lineTo(0, halfH);
+      ctx.lineTo(0, -halfH);
+      ctx.closePath();
+      ctx.fill();
+    }
+
     ctx.strokeStyle = "#7a2e0c";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-halfW, -halfH);
+    ctx.lineTo(halfW, -halfH);
+    ctx.moveTo(-halfW, halfH);
+    ctx.lineTo(halfW, halfH);
+    if (first) {
+      ctx.moveTo(-halfW, -halfH * 0.68);
+      ctx.lineTo(-halfW, halfH * 0.68);
+    }
+    if (last) {
+      ctx.moveTo(halfW, -halfH * 0.68);
+      ctx.lineTo(halfW, halfH * 0.68);
+    }
     ctx.stroke();
 
-    ctx.fillStyle = "#6c2408";
-    ctx.font = `bold ${Math.floor(cellSize * 0.28)}px "Courier New", monospace`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(`B${size}`, 0, 1);
+    // A subtle divider shows cell occupancy without implying separate bombs.
+    if (!last) {
+      ctx.strokeStyle = "rgba(122,46,12,0.42)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(halfW - 1, -halfH * 0.72);
+      ctx.lineTo(halfW - 1, halfH * 0.72);
+      ctx.stroke();
+    }
+
+    if (bomb.fuseActive) {
+      ctx.fillStyle = "#6c2408";
+      ctx.font = `bold ${Math.floor(cellSize * 0.25)}px "Courier New", monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`B${bomb.bonusSize}`, 0, 1);
+    } else {
+      ctx.fillStyle = "rgba(108,36,8,0.32)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  private drawExplosionSilhouette(
-    ctx: CanvasRenderingContext2D,
-    bomb: Bomb,
-    cellSize: number,
-    explode: number
-  ): void {
-    const radius = cellSize * (bomb.kind === "bonus" ? 0.38 : 0.33);
+  private drawExplosionSilhouette(ctx: CanvasRenderingContext2D, bomb: Bomb, cellSize: number, explode: number): void {
     ctx.scale(1.12 + explode * 0.18, 1.12 + explode * 0.18);
     ctx.fillStyle = explode > 0.5 ? "#ffffff" : "#ffe83b";
 
     if (bomb.kind === "obstruction") {
+      const radius = cellSize * 0.33;
       ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
       return;
     }
 
+    if (bomb.kind === "bonus") {
+      const halfH = cellSize * 0.29;
+      ctx.fillRect(-cellSize * 0.5, -halfH, cellSize, halfH * 2);
+      return;
+    }
+
+    const radius = cellSize * 0.33;
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
