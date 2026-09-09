@@ -1,4 +1,4 @@
-import type { Bomb, BoardLayout, Cell, Direction } from "./Types";
+import type { Bomb, BoardLayout, Cell } from "./Types";
 import { makeConnectors, rotateConnectors } from "./Rules";
 
 const CELL_MOVE_SPEED = 9;
@@ -37,7 +37,6 @@ export class Board {
     if (!this.inBounds(row, col)) {
       return null;
     }
-
     return this.cells[row][col];
   }
 
@@ -174,7 +173,6 @@ export class Board {
         return row;
       }
     }
-
     return null;
   }
 
@@ -206,27 +204,11 @@ export class Board {
   }
 
   private createBomb(row: number, col: number, spawnDelay: number): Bomb {
-    const connectors = new Set<Direction>();
-    const dirs: Direction[] = ["up", "right", "down", "left"];
-    
-    const r = Math.random();
-    let numConnectors = 2; // Default to pipes/corners
-    
-    if (r < 0.25) {
-      numConnectors = 1; // 25% chance of dead ends (1 fuse)
-    } else if (r > 0.9) {
-      numConnectors = 3; // 10% chance of 3-way splitters
-    }
-    
-    while (connectors.size < numConnectors) {
-      connectors.add(dirs[Math.floor(Math.random() * dirs.length)]);
-    }
-
     return {
       id: this.nextId++,
       row,
       col,
-      connectors: Array.from(connectors),
+      connectors: makeConnectors(this.nextRandomInt(4)),
       visualX: this.cellCenterX(col),
       visualY: this.cellCenterY(row),
       targetX: this.cellCenterX(col),
