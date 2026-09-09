@@ -2,54 +2,46 @@ import type { GameSnapshot } from "../game/Types";
 
 export class HudRenderer {
   render(ctx: CanvasRenderingContext2D, snapshot: GameSnapshot): void {
-    // 1. FLAMES banner (top right)
-    ctx.fillStyle = "#236ca9"; // dark blue border/shadow
+    ctx.fillStyle = "#236ca9";
     ctx.fillRect(100, 10, 140, 26);
-    ctx.fillStyle = "#4eaae3"; // light blue fill
+    ctx.fillStyle = "#4eaae3";
     ctx.fillRect(102, 12, 136, 22);
-    this.text(ctx, `FLAMES ( ${snapshot.flamesRemaining.toString().padStart(3, "0")} )`, 110, 17, "#ffffff", 12);
+    const attackText = snapshot.mode === "endless"
+      ? "ENDLESS"
+      : `FLAMES ( ${snapshot.flamesRemaining.toString().padStart(3, "0")} )`;
+    this.text(ctx, attackText, snapshot.mode === "endless" ? 148 : 110, 17, "#ffffff", 12);
 
-    // 2. LV Badge (top left, circular)
-    ctx.fillStyle = "#19568f"; // dark shadow border
+    ctx.fillStyle = "#19568f";
     ctx.beginPath();
     ctx.arc(38, 26, 32, 0, Math.PI * 2);
     ctx.fill();
-    
-    // Bottom triangle for the LV badge teardrop shape
     ctx.beginPath();
     ctx.moveTo(22, 48);
     ctx.lineTo(54, 48);
     ctx.lineTo(38, 62);
     ctx.fill();
 
-    ctx.fillStyle = "#7ad4f4"; // light cyan inner
+    ctx.fillStyle = "#7ad4f4";
     ctx.beginPath();
     ctx.arc(36, 24, 32, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.beginPath();
     ctx.moveTo(20, 46);
     ctx.lineTo(52, 46);
     ctx.lineTo(36, 60);
     ctx.fill();
 
-    // "LV" text
     this.text(ctx, "LV", 16, 17, "#17488a", 16);
-    
-    // White oval/circle for level number
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(55, 24, 11, 0, Math.PI * 2);
     ctx.fill();
     this.text(ctx, snapshot.level.toString().padStart(2, "0"), 48, 19, "#17488a", 11);
 
-    // 3. SCORE Banner (just above play area)
-    ctx.fillStyle = "#cf8729"; // shadow/border
+    ctx.fillStyle = "#cf8729";
     ctx.fillRect(40, 46, 160, 26);
-    ctx.fillStyle = "#fab656"; // gold base
+    ctx.fillStyle = "#fab656";
     ctx.fillRect(42, 48, 156, 22);
-    
-    // Score string (e.g. 00031500)
     const scoreStr = snapshot.score.toString().padStart(8, "0");
     this.text(ctx, scoreStr, 50, 52, "#ffffff", 14);
 
@@ -77,10 +69,8 @@ export class HudRenderer {
   ): void {
     ctx.font = `${size}px "Courier New", monospace`;
     ctx.textBaseline = "top";
-    // Drop shadow
     ctx.fillStyle = "#10335e";
     ctx.fillText(value, x + 1, y + 1);
-    // Main text
     ctx.fillStyle = color;
     ctx.fillText(value, x, y);
   }
