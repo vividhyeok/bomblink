@@ -11,6 +11,7 @@ import { type ChainNode, findConnectedChain, scoreForExplosion } from "./Rules";
 import type {
   Bomb,
   BoardLayout,
+  BonusSize,
   BurnSegment,
   Cursor,
   ExplosionFlash,
@@ -196,6 +197,12 @@ export class Game {
     if (this.phaseTimer >= 0.08) this.setPhase("idle");
   }
 
+  /**
+   * Historical 2004 player notes describe the side flame stopping while bombs
+   * explode, with other bombs still freely operable. Therefore one flame drop may
+   * ignite more than one separate chain: it pauses on contact and resumes after the
+   * explosion/gravity resolution instead of being consumed by the first hit.
+   */
   private updateFlamePassing(dt: number): void {
     this.consumeMoveInput();
     this.consumeRotationInput();
@@ -208,11 +215,13 @@ export class Game {
     updateFlameLine(this.flame, dt);
     this.scanFlameHit();
 
+    // scanFlameHit switches to fuseBurning when it finds a contact. Leave the
+    // FlameEvent alive and frozen at its current progress.
+    if (this.phase !== "flamePassing") return;
+
     if (this.flame.progress >= 1) {
       this.flame = null;
-      if (this.activeChains.length > 0) {
-        this.setPhase("fuseBurning");
-      } else if (this.mode === "flames100" && this.flamesRemaining <= 0) {
+      if (this.mode === "flames100" && this.flamesRemaining <= 0) {
         this.triggerResult();
       } else {
         this.scheduleNextFlame();
@@ -222,6 +231,8 @@ export class Game {
   }
 
   private updateFuseBurning(dt: number): void {
+    // Explicitly preserve the original high-skill behavior: bombs remain movable
+    // and rotatable while a chain is exploding and the side flame is paused.
     this.consumeMoveInput();
     this.consumeRotationInput();
     if (this.activeChains.length === 0) this.setPhase("exploding");
@@ -243,12 +254,25 @@ export class Game {
 
     if (this.gameOverPending || this.board.hasBombInRow(DEATH_ROW)) {
       this.triggerGameOver();
-    } else if (this.mode === "flames100" && this.flamesRemaining <= 0) {
-      this.triggerResult();
-    } else {
-      this.nextFlameTimer = Math.max(2.2, Math.min(this.nextFlameTimer, this.nextFlameDelay()));
-      this.setPhase("idle");
+      return;
     }
+
+    // Resume the SAME flame after the chain and gravity settle. The 100 ATTACK
+    // counter is decremented only in startFlame(), so secondary ignitions do not
+    // consume another flame opportunity.
+    if (this.flame) {
+      this.flame.hit = null;
+      this.setPhase("flamePassing");
+      return;
+    }
+
+    if (this.mode === "flames100" && this.flamesRemaining <= 0) {
+      this.triggerResult();
+      return;
+    }
+
+    this.nextFlameTimer = Math.max(2.2, Math.min(this.nextFlameTimer, this.nextFlameDelay()));
+    this.setPhase("idle");
   }
 
   private consumeGlobalInput(): void {
@@ -341,7 +365,7 @@ export class Game {
       this.triggerGameOver();
       return;
     }
-    this.board.addPressureRow();
+    this.board.addPressureRow(this.difficulty());
     this.gameOverPending = this.board.hasBombInRow(DEATH_ROW);
     this.pressureTimer = this.nextPressureDelay();
     this.setPhase("spawning");
@@ -365,11 +389,10 @@ export class Game {
       const requiredConnector = side === "left" ? "left" : "right";
       if (bomb && bomb.state === "normal" && bomb.connectors.includes(requiredConnector)) {
         this.flame.hit = { row: r, col };
-        this.flame.progress = 1;
-        this.flame.age = this.flame.duration;
         this.board.setBombState(bomb, "ignited");
         this.sound.ignite();
         this.startChain(r, col);
+        this.setPhase("fuseBurning");
         return;
       }
     }
@@ -387,12 +410,36 @@ export class Game {
     }
 
     this.activeChains.push({ nodes: chain, index: 0, timer: 0 });
-    this.combo += chain.length;
+
+    // A resumed flame can ignite several separate chains. Each ignition is its own
+    // combo rather than one artificial combo spanning the entire flame drop.
+    this.combo = chain.length;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
     this.totalExploded += chain.length;
-    this.score += scoreForExplosion(chain.length);
+
+    const explodedUnits = chain.reduce(
+      (sum, node) => sum + (node.bomb.kind === "bonus" ? node.bomb.bonusSize : 1),
+      0
+    );
+    this.score += scoreForExplosion(chain.length, explodedUnits);
+
+    this.queueBonusForChain(chain.length);
     this.updateLevel();
     this.shake.trigger(chain.length);
+  }
+
+  /**
+   * Feature-phone preservation notes report long bonus bombs after one continuous
+   * explosion clears 9/18/27 bombs. Official manuals independently confirm a large,
+   * non-rotatable bonus bomb. Until exact multi-cell geometry is recovered, the
+   * queued piece carries a 2/3/4 scoring size in one logical cell.
+   */
+  private queueBonusForChain(chainLength: number): void {
+    let size: Exclude<BonusSize, 1> | null = null;
+    if (chainLength >= 27) size = 4;
+    else if (chainLength >= 18) size = 3;
+    else if (chainLength >= 9) size = 2;
+    if (size) this.board.queueBonus(size);
   }
 
   private updateActiveChains(dt: number): void {
@@ -463,6 +510,7 @@ export class Game {
 
   private triggerGameOver(): void {
     this.gameOverPending = false;
+    this.flame = null;
     this.message = "GAME OVER";
     this.sound.gameOver();
     this.setPhase("gameOver");
@@ -477,6 +525,9 @@ export class Game {
   }
 
   private updateLevel(): void {
+    // Exact feature-phone level-up thresholds and level-up point award are still
+    // not recoverable from authoritative sources. Keep this tuning isolated rather
+    // than presenting it as original behavior; the confirmed cap is 99.
     this.level = Math.min(99, Math.floor(this.totalExploded / 20));
   }
 
