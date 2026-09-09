@@ -41,44 +41,34 @@ export class Renderer {
 
     this.drawFooter(snapshot);
     this.drawOverlay(snapshot);
-    
-    // Draw COMBO popup during exploding/falling phases for large chains
+
     if (snapshot.combo >= 4 && (snapshot.phase === "exploding" || snapshot.phase === "falling" || snapshot.phase === "fuseBurning")) {
       this.drawComboPopup(snapshot);
     }
-    
+
     ctx.restore();
   }
 
   private drawComboPopup(snapshot: GameSnapshot): void {
     const ctx = this.ctx;
     const cx = snapshot.canvasWidth / 2;
-    const cy = snapshot.layout.y + snapshot.layout.rows * snapshot.layout.cellSize * 0.4; // Slightly above center
-
-    // Add a slight bounce based on time
+    const cy = snapshot.layout.y + (snapshot.layout.rows - 1) * snapshot.layout.cellSize * 0.4;
     const bounce = Math.sin(performance.now() / 80) * 3;
 
     ctx.save();
     ctx.translate(cx, cy + bounce);
-    
-    // Text styling
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "bold 24px 'Trebuchet MS', Arial, sans-serif";
-    
-    // COMBO !!
     ctx.fillStyle = "#ffe23e";
     ctx.strokeStyle = "#000000";
     ctx.lineWidth = 4;
     ctx.strokeText("COMBO !!", 0, -15);
     ctx.fillText("COMBO !!", 0, -15);
-
-    // Number
     ctx.font = "bold 36px 'Trebuchet MS', Arial, sans-serif";
     ctx.fillStyle = "#ff6b3e";
     ctx.strokeText(snapshot.combo.toString(), 0, 15);
     ctx.fillText(snapshot.combo.toString(), 0, 15);
-
     ctx.restore();
   }
 
@@ -89,29 +79,18 @@ export class Renderer {
   private drawBackground(snapshot: GameSnapshot): void {
     const ctx = this.ctx;
     const { canvasWidth, canvasHeight } = snapshot;
-
-    // Bright cyan/blue background for the entire canvas
     ctx.fillStyle = "#1ba1e2";
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-    // Faint vertical and horizontal grid lines for texture
     ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-    for (let x = 0; x < canvasWidth; x += 16) {
-      ctx.fillRect(x, 0, 1, canvasHeight);
-    }
-    for (let y = 0; y < canvasHeight; y += 16) {
-      ctx.fillRect(0, y, canvasWidth, 1);
-    }
+    for (let x = 0; x < canvasWidth; x += 16) ctx.fillRect(x, 0, 1, canvasHeight);
+    for (let y = 0; y < canvasHeight; y += 16) ctx.fillRect(0, y, canvasWidth, 1);
   }
 
-  private drawFooter(snapshot: GameSnapshot): void {
-    // Intentionally empty, footer removed to prevent obstructing the play area.
+  private drawFooter(_snapshot: GameSnapshot): void {
   }
 
   private drawOverlay(snapshot: GameSnapshot): void {
-    if (!snapshot.message) {
-      return;
-    }
+    if (!snapshot.message) return;
 
     const ctx = this.ctx;
     const isBanner = snapshot.phase === "banner" || snapshot.phase === "ready";
@@ -144,7 +123,7 @@ export class Renderer {
     if (isBanner) {
       ctx.fillStyle = "#c9f4ff";
       ctx.font = "9px \"Courier New\", monospace";
-      ctx.fillText("100 FLAMES", 120, 171);
+      ctx.fillText(snapshot.mode === "endless" ? "ENDLESS" : "100 ATTACK", 120, 171);
     }
 
     ctx.textAlign = "left";
