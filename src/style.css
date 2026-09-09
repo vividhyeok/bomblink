@@ -2,7 +2,7 @@
   color-scheme: dark;
   background: #111;
   font-family: "Trebuchet MS", Arial, sans-serif;
-  touch-action: none; /* Prevent any scrolling/zooming */
+  touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -30,7 +30,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Moderate bottom padding to push UI above floating toolbars without being excessive */
   padding: 16px 16px calc(30px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, #1b2638, #0f1622);
 }
@@ -48,8 +47,8 @@ body {
 #game {
   width: 100%;
   aspect-ratio: 240 / 360;
-  min-height: 0; /* allows flexbox shrinking below content size */
-  max-height: calc(100% - 180px); /* 180px for virtual controls */
+  min-height: 0;
+  max-height: calc(100% - 180px);
   border: 4px solid #000;
   border-radius: 8px;
   background: #1ba1e2;
@@ -71,7 +70,6 @@ body {
   margin-top: 16px;
 }
 
-/* Joystick Base */
 .joystick {
   position: relative;
   width: 130px;
@@ -132,6 +130,7 @@ body {
 .action-buttons {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .action-btn {
@@ -148,6 +147,14 @@ body {
   cursor: pointer;
   touch-action: manipulation;
   transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.action-btn.raise {
+  width: 58px;
+  height: 58px;
+  font-size: 11px;
+  background: radial-gradient(circle at 30% 30%, #60a5fa, #1d4ed8);
+  border-color: #1e3a8a;
 }
 
 .action-btn:active {

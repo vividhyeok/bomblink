@@ -1,104 +1,119 @@
-import type { Bomb, Direction } from "../game/Types";
-
-const CONNECTOR_COLOR = "#fff0d8";
-const CONNECTOR_SHADOW = "#d62d29";
-const IGNITED_COLOR = "#ffe14a";
+import type { Bomb } from "../game/Types";
 
 export class BombRenderer {
   render(ctx: CanvasRenderingContext2D, bomb: Bomb, cellSize: number): void {
-    const radius = cellSize * 0.34;
-    const pulse = bomb.state === "ignited" ? Math.sin(bomb.stateAge * 35) * 1.5 : 0;
-    const explode = bomb.state === "exploding" ? Math.min(1, bomb.stateAge / 0.12) : 0;
     const x = Math.round(bomb.visualX);
     const y = Math.round(bomb.visualY);
-
-    this.drawConnectors(ctx, bomb, cellSize, bomb.state === "ignited");
+    const pulse = bomb.state === "ignited" ? Math.sin(bomb.stateAge * 35) * 1.2 : 0;
+    const explode = bomb.state === "exploding" ? Math.min(1, bomb.stateAge / 0.12) : 0;
 
     ctx.save();
     ctx.translate(x, y);
 
     if (bomb.state === "exploding") {
-      // Draw a harsh, bright silhouette flash instead of the soft fade
-      ctx.scale(1.2, 1.2);
-      ctx.fillStyle = explode > 0.5 ? "#ffffff" : "#ffe83b";
-      ctx.beginPath();
-      ctx.arc(0, 0, radius + pulse, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawExplosionSilhouette(ctx, bomb, cellSize, explode);
+      ctx.restore();
+      return;
+    }
+
+    if (bomb.kind === "obstruction") {
+      this.drawObstruction(ctx, cellSize, pulse, bomb.state === "ignited");
+    } else if (bomb.kind === "bonus") {
+      this.drawBonus(ctx, cellSize, pulse, bomb.bonusSize, bomb.state === "ignited");
     } else {
-      // Normal Bomb Rendering
-      // Create a beautiful glossy blue radial gradient
-      const gradient = ctx.createRadialGradient(
-        -radius * 0.3, -radius * 0.3, 0,
-        0, 0, radius + pulse
-      );
-      gradient.addColorStop(0, "#60a5fa"); // Light blue reflection center
-      gradient.addColorStop(0.3, "#2563eb"); // Royal blue midtone
-      gradient.addColorStop(0.8, "#1d4ed8"); // Rich blue base
-      gradient.addColorStop(1, "#0f172a");   // Dark border shadow
-
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius + pulse, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Specular highlight dot (gloss reflection) on top-left
-      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-      ctx.beginPath();
-      ctx.arc(-radius * 0.3, -radius * 0.3, radius * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (bomb.state === "ignited") {
-        // Glow spark for ignited state
-        ctx.fillStyle = "#ff8a20";
-        ctx.fillRect(radius - 2, -radius - 3, 4, 4);
-        ctx.fillStyle = "#fff38a";
-        ctx.fillRect(radius - 1, -radius - 5, 2, 2);
-      }
+      this.drawNormal(ctx, cellSize, pulse, bomb.state === "ignited");
     }
 
     ctx.restore();
   }
 
-  private drawConnectors(ctx: CanvasRenderingContext2D, bomb: Bomb, cellSize: number, ignited: boolean): void {
-    const x = Math.round(bomb.visualX);
-    const y = Math.round(bomb.visualY);
-    const inner = Math.floor(cellSize * 0.18);
-    const outer = Math.floor(cellSize * 0.49);
+  private drawNormal(ctx: CanvasRenderingContext2D, cellSize: number, pulse: number, ignited: boolean): void {
+    const radius = cellSize * 0.31 + pulse;
+    const gradient = ctx.createRadialGradient(-radius * 0.3, -radius * 0.3, 0, 0, 0, radius);
+    gradient.addColorStop(0, ignited ? "#ffe873" : "#72b8ff");
+    gradient.addColorStop(0.28, ignited ? "#ff9d2e" : "#2869c7");
+    gradient.addColorStop(0.78, ignited ? "#d7471f" : "#183f88");
+    gradient.addColorStop(1, "#08162d");
 
-    for (const direction of bomb.connectors) {
-      const end = endpoint(direction, outer);
-      const start = endpoint(direction, inner);
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
 
-      ctx.strokeStyle = CONNECTOR_SHADOW;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(x + start.x, y + start.y);
-      ctx.lineTo(x + end.x, y + end.y);
-      ctx.stroke();
+    ctx.strokeStyle = "#061227";
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
-      ctx.strokeStyle = ignited ? IGNITED_COLOR : CONNECTOR_COLOR;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x + start.x, y + start.y);
-      ctx.lineTo(x + end.x, y + end.y);
-      ctx.stroke();
-
-      ctx.fillStyle = ignited ? "#ff9b22" : "#e5362f";
-      const knot = endpoint(direction, Math.floor((inner + outer) / 2));
-      ctx.fillRect(x + knot.x - 2, y + knot.y - 2, 4, 4);
-    }
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.beginPath();
+    ctx.arc(-radius * 0.34, -radius * 0.34, radius * 0.15, 0, Math.PI * 2);
+    ctx.fill();
   }
-}
 
-function endpoint(direction: Direction, distance: number): { x: number; y: number } {
-  switch (direction) {
-    case "up":
-      return { x: 0, y: -distance };
-    case "right":
-      return { x: distance, y: 0 };
-    case "down":
-      return { x: 0, y: distance };
-    case "left":
-      return { x: -distance, y: 0 };
+  private drawObstruction(ctx: CanvasRenderingContext2D, cellSize: number, pulse: number, ignited: boolean): void {
+    const half = cellSize * 0.31 + pulse;
+    ctx.fillStyle = ignited ? "#f59e0b" : "#42677b";
+    ctx.fillRect(-half, -half, half * 2, half * 2);
+    ctx.strokeStyle = "#102633";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-half, -half, half * 2, half * 2);
+
+    ctx.fillStyle = ignited ? "#fff1a8" : "#a8cbd9";
+    ctx.fillRect(-half * 0.56, -half * 0.58, half * 1.12, half * 0.28);
+    ctx.fillStyle = "#203a48";
+    ctx.fillRect(-half * 0.17, -half * 0.86, half * 0.34, half * 0.25);
+
+    // Fixed-piece mark: visually explains why rotation input is rejected.
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-half * 0.42, half * 0.18);
+    ctx.lineTo(half * 0.42, half * 0.7);
+    ctx.moveTo(half * 0.42, half * 0.18);
+    ctx.lineTo(-half * 0.42, half * 0.7);
+    ctx.stroke();
+  }
+
+  private drawBonus(
+    ctx: CanvasRenderingContext2D,
+    cellSize: number,
+    pulse: number,
+    size: number,
+    ignited: boolean
+  ): void {
+    const radius = cellSize * 0.36 + pulse;
+    ctx.fillStyle = ignited ? "#fff06a" : "#ffb329";
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#7a2e0c";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = "#6c2408";
+    ctx.font = `bold ${Math.floor(cellSize * 0.28)}px "Courier New", monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`B${size}`, 0, 1);
+  }
+
+  private drawExplosionSilhouette(
+    ctx: CanvasRenderingContext2D,
+    bomb: Bomb,
+    cellSize: number,
+    explode: number
+  ): void {
+    const radius = cellSize * (bomb.kind === "bonus" ? 0.38 : 0.33);
+    ctx.scale(1.12 + explode * 0.18, 1.12 + explode * 0.18);
+    ctx.fillStyle = explode > 0.5 ? "#ffffff" : "#ffe83b";
+
+    if (bomb.kind === "obstruction") {
+      ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+      return;
+    }
+
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
 }

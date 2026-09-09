@@ -5,6 +5,7 @@ type Action =
   | "left"
   | "rotateClockwise"
   | "rotateCounterClockwise"
+  | "raise"
   | "pause"
   | "fire"
   | "mute"
@@ -24,6 +25,9 @@ const KEY_TO_ACTION: Record<string, Action> = {
   Enter: "rotateClockwise",
   KeyZ: "rotateCounterClockwise",
   Backspace: "rotateCounterClockwise",
+  KeyX: "raise",
+  ShiftLeft: "raise",
+  ShiftRight: "raise",
   Escape: "pause",
   KeyF: "fire",
   KeyM: "mute",
@@ -59,7 +63,6 @@ export class KeyboardInput {
       this.onFirstInput = null;
     });
 
-    // Virtual Controls - Rotation Action
     const bindBtn = (id: string, action: Action) => {
       const btn = document.getElementById(id);
       if (!btn) return;
@@ -76,14 +79,14 @@ export class KeyboardInput {
     };
 
     bindBtn("btnRotate", "rotateClockwise");
+    bindBtn("btnRaise", "raise");
 
-    // Virtual Joystick Logic
     const joyBg = document.querySelector(".joy-bg") as HTMLElement;
     const joyCenter = document.querySelector(".joy-center") as HTMLElement;
     let joystickActive = false;
     let joyStartX = 0;
     let joyStartY = 0;
-    const joyMaxRadius = 35; // Maximum distance the knob can move
+    const joyMaxRadius = 35;
 
     const handleJoyStart = (e: TouchEvent | MouseEvent) => {
       e.preventDefault();
@@ -127,7 +130,7 @@ export class KeyboardInput {
         
         if (this.activeJoyAction !== action) {
           this.activeJoyAction = action;
-          this.lastJoyActionTime = 0; // Trigger immediately on direction change
+          this.lastJoyActionTime = 0;
         }
       } else {
         this.activeJoyAction = null;
@@ -151,7 +154,6 @@ export class KeyboardInput {
       window.addEventListener("mouseup", handleJoyEnd);
     }
 
-    // Also trigger interaction on canvas click for mobile starting
     const canvas = document.getElementById("game");
     if (canvas) {
       canvas.addEventListener("touchstart", () => {
@@ -166,10 +168,9 @@ export class KeyboardInput {
   }
 
   consume(action: Action): boolean {
-    // Handle continuous joystick hold
     if (this.activeJoyAction === action) {
       const now = performance.now();
-      if (now - this.lastJoyActionTime > 180) { // Slower repeat rate for grid feel
+      if (now - this.lastJoyActionTime > 180) {
         this.lastJoyActionTime = now;
         return true;
       }

@@ -6,11 +6,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#111111" />
-    <title>Fuse Link Prototype</title>
+    <title>Bomb Link Reconstruction</title>
   </head>
   <body>
     <main class="shell">
-      <canvas id="game" width="240" height="360" aria-label="Fuse Link Prototype game canvas"></canvas>
+      <canvas id="game" width="240" height="360" aria-label="Bomb Link reconstruction game canvas"></canvas>
       <div class="virtual-controls" id="virtualControls">
         <div class="joystick">
           <div class="joy-bg">
@@ -22,11 +22,12 @@
           </div>
         </div>
         <div class="action-buttons">
+          <button id="btnRaise" class="action-btn raise">RAISE</button>
           <button id="btnRotate" class="action-btn">ROTATE</button>
         </div>
       </div>
       <section class="controls" aria-label="Controls">
-        <span>Keyboard: Arrows to move, Space to Rotate</span>
+        <span>Arrows/WASD: move · Space: rotate · X/Shift: raise</span>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

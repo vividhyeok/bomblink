@@ -1,8 +1,17 @@
-import type { Bomb, BoardLayout, Cell, Direction } from "./Types";
+import type { Bomb, BoardLayout, BonusSize, Cell } from "./Types";
 import { makeConnectors, rotateConnectors } from "./Rules";
 
 const CELL_MOVE_SPEED = 9;
-const DEFAULT_STARTING_ROWS = 4;
+const DEFAULT_STARTING_ROWS = 5;
+
+/**
+ * Exact feature-phone obstruction frequencies have not been recovered.
+ * Contemporary official-port coverage confirms that higher difficulty creates
+ * more obstruction bombs, so the probability is kept in one replaceable tuning.
+ */
+const OBSTRUCTION_START_DIFFICULTY = 0.18;
+const OBSTRUCTION_CHANCE_SCALE = 0.2;
+const OBSTRUCTION_MAX_CHANCE = 0.16;
 
 export class Board {
   readonly layout: BoardLayout;
@@ -10,6 +19,7 @@ export class Board {
 
   private nextId = 1;
   private randomSeed = 7229;
+  private pendingBonusSize: Exclude<BonusSize, 1> | null = null;
 
   constructor(layout: BoardLayout) {
     this.layout = layout;
@@ -17,39 +27,58 @@ export class Board {
     this.reset();
   }
 
+  get previewRow(): number {
+    return this.layout.rows - 1;
+  }
+
+  get playableRows(): number {
+    return this.layout.rows - 1;
+  }
+
   reset(startingRows = DEFAULT_STARTING_ROWS): void {
     this.nextId = 1;
     this.randomSeed = 7229;
-    const firstFilledRow = Math.max(0, this.layout.rows - startingRows);
-    
+    this.pendingBonusSize = null;
+    const firstFilledRow = Math.max(0, this.playableRows - startingRows);
     this.cells = Array.from({ length: this.layout.rows }, () => Array(this.layout.cols).fill(null));
-    
-    for (let row = 0; row < this.layout.rows; row++) {
-      for (let col = 0; col < this.layout.cols; col++) {
-        if (row >= firstFilledRow) {
-          this.cells[row][col] = this.createBomb(row, col, 0);
-        }
+
+    // Keep the opening board free of reconstructed special pieces. Surviving
+    // descriptions say the special pieces appear as play progresses.
+    for (let row = firstFilledRow; row < this.playableRows; row += 1) {
+      for (let col = 0; col < this.layout.cols; col += 1) {
+        this.cells[row][col] = this.createBomb(row, col, 0, "normal", 1);
       }
     }
+
+    this.generatePreviewRow(0);
   }
 
   get(row: number, col: number): Bomb | null {
     if (!this.inBounds(row, col)) {
       return null;
     }
-
     return this.cells[row][col];
   }
 
   rotate(row: number, col: number, clockwise: boolean): boolean {
-    const bomb = this.get(row, col);
+    if (row >= this.playableRows) {
+      return false;
+    }
 
-    if (!bomb || bomb.state !== "normal") {
+    const bomb = this.get(row, col);
+    // Official manuals explicitly say the bonus(big) and square bombs cannot rotate.
+    if (!bomb || bomb.state !== "normal" || bomb.kind !== "normal") {
       return false;
     }
 
     bomb.connectors = rotateConnectors(bomb.connectors, clockwise);
     return true;
+  }
+
+  /** Queue the documented long/bonus bomb for the next incoming row. */
+  queueBonus(size: Exclude<BonusSize, 1>): void {
+    // If several qualifying chains happen before the next raise, keep the largest.
+    this.pendingBonusSize = Math.max(this.pendingBonusSize ?? 0, size) as Exclude<BonusSize, 1>;
   }
 
   clearBombs(bombs: Bomb[]): void {
@@ -62,7 +91,6 @@ export class Board {
 
   setBombState(bomb: Bomb, state: Bomb["state"]): void {
     const current = this.get(bomb.row, bomb.col);
-
     if (current?.id === bomb.id) {
       current.state = state;
       current.stateAge = 0;
@@ -70,22 +98,20 @@ export class Board {
   }
 
   applyGravity(): void {
-    const { rows, cols } = this.layout;
+    const { cols } = this.layout;
 
     for (let col = 0; col < cols; col += 1) {
       const survivors: Bomb[] = [];
 
-      for (let row = rows - 1; row >= 0; row -= 1) {
+      for (let row = this.playableRows - 1; row >= 0; row -= 1) {
         const bomb = this.cells[row][col];
-
         if (bomb) {
           survivors.push(bomb);
         }
       }
 
-      for (let row = rows - 1; row >= 0; row -= 1) {
-        const survivor = survivors[rows - 1 - row];
-
+      for (let row = this.playableRows - 1; row >= 0; row -= 1) {
+        const survivor = survivors[this.playableRows - 1 - row];
         if (survivor) {
           survivor.row = row;
           survivor.col = col;
@@ -101,32 +127,34 @@ export class Board {
     }
   }
 
-  addPressureRow(): void {
-    const { rows, cols } = this.layout;
+  /**
+   * Raise one step. The non-interactive preview row becomes the new bottom
+   * playable row, matching the manuals' "raises next bomb one step up" wording.
+   */
+  addPressureRow(difficulty = 0): void {
+    const { cols } = this.layout;
+    const incoming = this.cells[this.previewRow].slice();
 
-    for (let row = 0; row < rows - 1; row += 1) {
+    for (let row = 0; row < this.playableRows - 1; row += 1) {
       for (let col = 0; col < cols; col += 1) {
         const bomb = this.cells[row + 1][col];
         this.cells[row][col] = bomb;
-
         if (bomb) {
-          bomb.row = row;
-          bomb.col = col;
-          bomb.targetX = this.cellCenterX(col);
-          bomb.targetY = this.cellCenterY(row);
-          bomb.spawnDelay = 0;
-          bomb.state = "normal";
+          this.moveBomb(bomb, row, col);
         }
       }
     }
 
-    const bottomRow = rows - 1;
-
+    const bottomRow = this.playableRows - 1;
     for (let col = 0; col < cols; col += 1) {
-      const bomb = this.createBomb(bottomRow, col, col * 18);
-      bomb.visualY = this.cellCenterY(rows);
+      const bomb = incoming[col];
       this.cells[bottomRow][col] = bomb;
+      if (bomb) {
+        this.moveBomb(bomb, bottomRow, col);
+      }
     }
+
+    this.generatePreviewRow(difficulty);
   }
 
   update(dt: number): boolean {
@@ -139,7 +167,6 @@ export class Board {
         }
 
         bomb.stateAge += dt;
-
         const speed = CELL_MOVE_SPEED * this.layout.cellSize * dt;
         const dx = bomb.targetX - bomb.visualX;
         const dy = bomb.targetY - bomb.visualY;
@@ -169,32 +196,26 @@ export class Board {
   }
 
   highestOccupiedRow(): number | null {
-    for (let row = 0; row < this.layout.rows; row += 1) {
+    for (let row = 0; row < this.playableRows; row += 1) {
       if (this.hasBombInRow(row)) {
         return row;
       }
     }
-
     return null;
   }
 
   occupiedRows(): number[] {
     const rows: number[] = [];
-
-    for (let row = 0; row < this.layout.rows; row += 1) {
+    for (let row = 0; row < this.playableRows; row += 1) {
       if (this.hasBombInRow(row)) {
         rows.push(row);
       }
     }
-
     return rows;
   }
 
   cellCenter(row: number, col: number): { x: number; y: number } {
-    return {
-      x: this.cellCenterX(col),
-      y: this.cellCenterY(row)
-    };
+    return { x: this.cellCenterX(col), y: this.cellCenterY(row) };
   }
 
   cellCenterX(col: number): number {
@@ -205,28 +226,60 @@ export class Board {
     return this.layout.y + row * this.layout.cellSize + this.layout.cellSize / 2;
   }
 
-  private createBomb(row: number, col: number, spawnDelay: number): Bomb {
-    const connectors = new Set<Direction>();
-    const dirs: Direction[] = ["up", "right", "down", "left"];
-    
-    const r = Math.random();
-    let numConnectors = 2; // Default to pipes/corners
-    
-    if (r < 0.25) {
-      numConnectors = 1; // 25% chance of dead ends (1 fuse)
-    } else if (r > 0.9) {
-      numConnectors = 3; // 10% chance of 3-way splitters
-    }
-    
-    while (connectors.size < numConnectors) {
-      connectors.add(dirs[Math.floor(Math.random() * dirs.length)]);
-    }
+  private generatePreviewRow(difficulty: number): void {
+    const { cols } = this.layout;
+    const bonusSize = this.pendingBonusSize;
+    const bonusCol = bonusSize ? this.nextRandomInt(cols) : -1;
+    this.pendingBonusSize = null;
 
+    for (let col = 0; col < cols; col += 1) {
+      let kind: Bomb["kind"] = "normal";
+      let size: BonusSize = 1;
+
+      if (col === bonusCol && bonusSize) {
+        kind = "bonus";
+        size = bonusSize;
+      } else if (this.rollObstruction(difficulty)) {
+        kind = "obstruction";
+      }
+
+      const bomb = this.createBomb(this.previewRow, col, col * 18, kind, size);
+      bomb.visualY = this.cellCenterY(this.layout.rows);
+      this.cells[this.previewRow][col] = bomb;
+    }
+  }
+
+  private rollObstruction(difficulty: number): boolean {
+    const chance = Math.min(
+      OBSTRUCTION_MAX_CHANCE,
+      Math.max(0, difficulty - OBSTRUCTION_START_DIFFICULTY) * OBSTRUCTION_CHANCE_SCALE
+    );
+    return this.nextRandomInt(10_000) < Math.floor(chance * 10_000);
+  }
+
+  private moveBomb(bomb: Bomb, row: number, col: number): void {
+    bomb.row = row;
+    bomb.col = col;
+    bomb.targetX = this.cellCenterX(col);
+    bomb.targetY = this.cellCenterY(row);
+    bomb.spawnDelay = 0;
+    bomb.state = "normal";
+  }
+
+  private createBomb(
+    row: number,
+    col: number,
+    spawnDelay: number,
+    kind: Bomb["kind"],
+    bonusSize: BonusSize
+  ): Bomb {
     return {
       id: this.nextId++,
       row,
       col,
-      connectors: Array.from(connectors),
+      connectors: makeConnectors(this.nextRandomInt(4)),
+      kind,
+      bonusSize,
       visualX: this.cellCenterX(col),
       visualY: this.cellCenterY(row),
       targetX: this.cellCenterX(col),

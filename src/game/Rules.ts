@@ -16,18 +16,13 @@ export const DELTA: Record<Direction, { row: number; col: number }> = {
   left: { row: 0, col: -1 }
 };
 
-const SHAPES: Direction[][] = [
-  ["left", "right"],
-  ["up", "down"],
-  ["up", "right"],
-  ["right", "down"],
-  ["down", "left"],
-  ["left", "up"],
-  ["up", "right", "down", "left"]
-];
-
+/**
+ * Original-style normal bombs have one directional fuse.
+ * We keep the legacy connectors array shape so the renderer/effects can stay simple,
+ * but normal gameplay now always generates exactly one direction.
+ */
 export function makeConnectors(seed: number): Direction[] {
-  return [...SHAPES[seed % SHAPES.length]];
+  return [DIRECTIONS[seed % DIRECTIONS.length]];
 }
 
 export function rotateConnectors(connectors: Direction[], clockwise: boolean): Direction[] {
@@ -42,13 +37,17 @@ export function hasConnector(bomb: Bomb | null, direction: Direction): boolean {
   return Boolean(bomb && bomb.state !== "empty" && bomb.connectors.includes(direction));
 }
 
+/**
+ * Directed BombLink rule:
+ * `a` is the bomb that is already burning/exploding, and `b` is the neighboring
+ * candidate. The chain reaches `b` only when b's fuse points back toward a.
+ */
 export function canConnect(a: Bomb | null, b: Bomb | null, directionFromA: Direction): boolean {
   if (!a || !b || a.state === "empty" || b.state === "empty") {
     return false;
   }
 
-  // Unidirectional: A connects to B if A has a connector pointing to B.
-  return a.connectors.includes(directionFromA);
+  return b.connectors.includes(OPPOSITE[directionFromA]);
 }
 
 export function incomingDirectionForFlame(side: "left" | "right"): Direction {
@@ -187,22 +186,20 @@ export function findCombinedConnectedChain(cells: Cell[][], starts: { row: numbe
   return result;
 }
 
-export function scoreForExplosion(count: number): number {
-  if (count <= 0) {
+/**
+ * Reconstructed feature-phone score curve:
+ * 100 * exploded-unit count + 100 * max(0, combo - 2)^2.
+ *
+ * `explodedUnits` can exceed the number of logical cells when a reconstructed
+ * bonus/big bomb represents a documented 2/3/4-length piece.
+ */
+export function scoreForExplosion(combo: number, explodedUnits = combo): number {
+  if (combo <= 0 || explodedUnits <= 0) {
     return 0;
   }
 
-  let bonus = 0;
-
-  if (count >= 10) {
-    bonus = 200;
-  } else if (count >= 6) {
-    bonus = 90;
-  } else if (count >= 4) {
-    bonus = 35;
-  }
-
-  return count * 10 + bonus;
+  const comboBonusBase = Math.max(0, combo - 2);
+  return explodedUnits * 100 + comboBonusBase * comboBonusBase * 100;
 }
 
 function key(row: number, col: number): string {
