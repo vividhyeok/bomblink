@@ -14,6 +14,7 @@ import type {
   BonusSize,
   BurnSegment,
   Cursor,
+  DifficultySetting,
   ExplosionFlash,
   FlameEvent,
   FlameSide,
@@ -34,16 +35,35 @@ const BOARD_LAYOUT: BoardLayout = {
 };
 
 const HUD_LABELS: HudLabel[] = ["FIRE", "FLAMES", "TOTAL", "ATTACK", "LEFT"];
-const STARTING_ROWS = 5;
+const STARTING_ROWS = 4;
 const DEATH_ROW = 0;
-const FIRST_FLAME_GRACE = 12;
-const INITIAL_PRESSURE_DELAY = 18;
+
+// Reference-derived timing from the surviving Android feature-phone reconstruction.
+// These replace the previous invented difficulty formulas, but are still documented
+// as reconstruction values rather than original-ROM measurements.
+const FIRST_FLAME_GRACE = 4;
+const FLAME_TRAVEL_SECONDS = 3;
+const NEXT_FLAME_DELAY = 4;
+const INITIAL_RAISE_DELAY = 41;
+const RAISE_DELAY_STEP = 1.5;
+const MIN_RAISE_DELAY = 0.5;
+const CHAIN_STEP_SECONDS = 0.4;
 const FIRE_WARNING_SECONDS = 4;
 const INITIAL_FLAMES = 100;
+
+// Official manuals confirm that level-up awards points. The exact values below are
+// implementation-level evidence from Null38's reconstruction, cross-checked against
+// contemporary player reports that one flame could produce several level-ups.
+const LEVEL_PROGRESS_UNITS = 16;
+const LEVEL_BONUS: Record<DifficultySetting, number> = {
+  easy: 50_000,
+  normal: 100_000,
+  hard: 200_000
+};
+
 const PARAMS = new URLSearchParams(globalThis.location?.search ?? "");
 const DEBUG_MODE = PARAMS.has("debug");
 const DEFAULT_MODE: GameMode = PARAMS.get("mode") === "endless" ? "endless" : "flames100";
-type DifficultySetting = "easy" | "normal" | "hard";
 const DEFAULT_DIFFICULTY: DifficultySetting =
   PARAMS.get("difficulty") === "easy" ? "easy" : PARAMS.get("difficulty") === "hard" ? "hard" : "normal";
 
@@ -52,13 +72,15 @@ export class Game {
   private readonly board = new Board(BOARD_LAYOUT);
   private readonly sound = new RetroSound();
   private readonly shake = new ScreenShake();
+
   private cursor: Cursor = { row: this.board.playableRows - 1, col: Math.floor(BOARD_LAYOUT.cols / 2), blink: 0 };
   private phase: Phase = "banner";
   private previousPhase: Phase = "banner";
   private phaseTimer = 0;
   private flame: FlameEvent | null = null;
   private nextFlameTimer = FIRST_FLAME_GRACE;
-  private pressureTimer = INITIAL_PRESSURE_DELAY;
+  private raiseInterval = INITIAL_RAISE_DELAY;
+  private pressureTimer = INITIAL_RAISE_DELAY;
   private gameplayTime = 0;
   private flameSide: FlameSide = Math.random() < 0.5 ? "left" : "right";
   private activeChains: { nodes: ChainNode[]; index: number; timer: number }[] = [];
@@ -68,6 +90,7 @@ export class Game {
   private flashes: ExplosionFlash[] = [];
   private shakeOffset = { x: 0, y: 0 };
   private level = 0;
+  private levelProgress = 0;
   private score = 0;
   private combo = 0;
   private bestCombo = 0;
@@ -161,7 +184,7 @@ export class Game {
     if (this.phaseTimer >= 1.15) {
       this.message = null;
       this.nextFlameTimer = FIRST_FLAME_GRACE;
-      this.pressureTimer = INITIAL_PRESSURE_DELAY;
+      this.pressureTimer = this.raiseInterval;
       this.setPhase("idle");
     }
   }
@@ -198,14 +221,20 @@ export class Game {
   }
 
   /**
-   * Historical 2004 player notes describe the side flame stopping while bombs
-   * explode, with other bombs still freely operable. Therefore one flame drop may
-   * ignite more than one separate chain: it pauses on contact and resumes after the
-   * explosion/gravity resolution instead of being consumed by the first hit.
+   * Contemporary play notes describe the side flame stopping while a chain
+   * explodes, with the player still free to move/rotate other bombs. The same
+   * flame resumes after explosion + gravity and may ignite another chain.
    */
   private updateFlamePassing(dt: number): void {
     this.consumeMoveInput();
     this.consumeRotationInput();
+
+    // Manual raise is available while a flame is travelling, matching the old
+    // high-score strategy of repeatedly exposing new rows between ignitions.
+    if (this.input.consume("raise")) {
+      this.startPressureRow();
+      return;
+    }
 
     if (!this.flame) {
       this.setPhase("idle");
@@ -214,9 +243,6 @@ export class Game {
 
     updateFlameLine(this.flame, dt);
     this.scanFlameHit();
-
-    // scanFlameHit switches to fuseBurning when it finds a contact. Leave the
-    // FlameEvent alive and frozen at its current progress.
     if (this.phase !== "flamePassing") return;
 
     if (this.flame.progress >= 1) {
@@ -231,8 +257,6 @@ export class Game {
   }
 
   private updateFuseBurning(dt: number): void {
-    // Explicitly preserve the original high-skill behavior: bombs remain movable
-    // and rotatable while a chain is exploding and the side flame is paused.
     this.consumeMoveInput();
     this.consumeRotationInput();
     if (this.activeChains.length === 0) this.setPhase("exploding");
@@ -242,8 +266,12 @@ export class Game {
     this.consumeMoveInput();
     this.consumeRotationInput();
     if (this.phaseTimer < 0.16) return;
+
     this.board.clearBombs(this.exploded);
     this.board.applyGravity();
+    // 9/18/27 clears produce a real 2/3/4-cell horizontal bonus piece falling
+    // from above, rather than the old one-cell B2/B3/B4 proxy.
+    this.board.dropPendingBonus();
     this.exploded = [];
     this.setPhase("falling");
   }
@@ -257,9 +285,6 @@ export class Game {
       return;
     }
 
-    // Resume the SAME flame after the chain and gravity settle. The 100 ATTACK
-    // counter is decremented only in startFlame(), so secondary ignitions do not
-    // consume another flame opportunity.
     if (this.flame) {
       this.flame.hit = null;
       this.setPhase("flamePassing");
@@ -271,7 +296,7 @@ export class Game {
       return;
     }
 
-    this.nextFlameTimer = Math.max(2.2, Math.min(this.nextFlameTimer, this.nextFlameDelay()));
+    this.nextFlameTimer = Math.max(0, Math.min(this.nextFlameTimer, NEXT_FLAME_DELAY));
     this.setPhase("idle");
   }
 
@@ -354,7 +379,7 @@ export class Game {
 
     if (this.mode === "flames100") this.flamesRemaining = Math.max(0, this.flamesRemaining - 1);
     this.combo = 0;
-    this.flame = createFlameLine(side, this.board.playableRows - 1, this.flameDuration());
+    this.flame = createFlameLine(side, this.board.playableRows - 1, FLAME_TRAVEL_SECONDS);
     this.sound.flame();
     this.nextFlameRow = null;
     this.setPhase("flamePassing");
@@ -365,9 +390,15 @@ export class Game {
       this.triggerGameOver();
       return;
     }
-    this.board.addPressureRow(this.difficulty());
+
+    this.board.addPressureRow(this.difficultySetting);
+    this.board.dropPendingBonus();
     this.gameOverPending = this.board.hasBombInRow(DEATH_ROW);
-    this.pressureTimer = this.nextPressureDelay();
+
+    // Both manual and automatic raises accelerate the next automatic raise in the
+    // surviving reconstruction: 41s initially, -1.5s each raise, minimum 0.5s.
+    this.raiseInterval = Math.max(MIN_RAISE_DELAY, this.raiseInterval - RAISE_DELAY_STEP);
+    this.pressureTimer = this.raiseInterval;
     this.setPhase("spawning");
   }
 
@@ -401,6 +432,7 @@ export class Game {
   private startChain(row: number, col: number): void {
     const bomb = this.board.get(row, col);
     if (!bomb) return;
+
     const playableCells = this.board.cells.slice(0, this.board.playableRows);
     const chain = findConnectedChain(playableCells, row, col);
     if (chain.length === 0) return;
@@ -410,36 +442,56 @@ export class Game {
     }
 
     this.activeChains.push({ nodes: chain, index: 0, timer: 0 });
-
-    // A resumed flame can ignite several separate chains. Each ignition is its own
-    // combo rather than one artificial combo spanning the entire flame drop.
     this.combo = chain.length;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
     this.totalExploded += chain.length;
 
-    const explodedUnits = chain.reduce(
-      (sum, node) => sum + (node.bomb.kind === "bonus" ? node.bomb.bonusSize : 1),
-      0
-    );
-    this.score += scoreForExplosion(chain.length, explodedUnits);
+    // Multi-cell bonus segments are real exploded cells now, so base scoring uses
+    // actual chain length. A separate reference-derived bonus is awarded once per
+    // long piece, not once per segment.
+    this.score += scoreForExplosion(chain.length, chain.length);
+    this.score += this.bigBonusScore(chain);
 
     this.queueBonusForChain(chain.length);
-    this.updateLevel();
+    this.applyLevelProgress(chain.length);
     this.shake.trigger(chain.length);
   }
 
-  /**
-   * Feature-phone preservation notes report long bonus bombs after one continuous
-   * explosion clears 9/18/27 bombs. Official manuals independently confirm a large,
-   * non-rotatable bonus bomb. Until exact multi-cell geometry is recovered, the
-   * queued piece carries a 2/3/4 scoring size in one logical cell.
-   */
   private queueBonusForChain(chainLength: number): void {
     let size: Exclude<BonusSize, 1> | null = null;
     if (chainLength >= 27) size = 4;
     else if (chainLength >= 18) size = 3;
     else if (chainLength >= 9) size = 2;
     if (size) this.board.queueBonus(size);
+  }
+
+  private bigBonusScore(nodes: ChainNode[]): number {
+    const scored = new Set<number>();
+    let bonus = 0;
+
+    for (const node of nodes) {
+      const bomb = node.bomb;
+      if (bomb.kind !== "bonus" || bomb.bonusSize <= 1 || scored.has(bomb.pieceId)) continue;
+      scored.add(bomb.pieceId);
+      if (bomb.bonusSize === 2) bonus += 20_000;
+      else if (bomb.bonusSize === 3) bonus += 90_000;
+      else if (bomb.bonusSize === 4) bonus += 200_000;
+    }
+
+    return bonus;
+  }
+
+  private applyLevelProgress(explodedUnits: number): void {
+    this.levelProgress += explodedUnits;
+
+    // Keep paying the level-up award at the level-99 cap. This matches 2006
+    // high-score player notes that explicitly describe reaching 99 before all 100
+    // flames and continuing to farm the level-up score.
+    while (this.levelProgress >= LEVEL_PROGRESS_UNITS) {
+      this.levelProgress -= LEVEL_PROGRESS_UNITS;
+      if (this.level < 99) this.level += 1;
+      this.score += LEVEL_BONUS[this.difficultySetting];
+    }
   }
 
   private updateActiveChains(dt: number): void {
@@ -454,7 +506,7 @@ export class Game {
         this.sound.explode(active.nodes.length);
         this.igniteChildrenOf(bomb, active.nodes);
         active.index += 1;
-        active.timer += active.nodes.length >= 8 ? 0.13 : 0.17;
+        active.timer += CHAIN_STEP_SECONDS;
       }
     }
     this.activeChains = this.activeChains.filter((chain) => chain.index < chain.nodes.length);
@@ -474,26 +526,7 @@ export class Game {
     }
   }
 
-  private nextFlameDelay(): number {
-    return 13.5 - this.difficulty() * 5;
-  }
-
-  private flameDuration(): number {
-    return 3.1 - this.difficulty() * 0.9;
-  }
-
-  private nextPressureDelay(): number {
-    return 15 - this.difficulty() * 5;
-  }
-
-  private difficulty(): number {
-    const preset = this.difficultySetting === "easy" ? 0 : this.difficultySetting === "hard" ? 0.35 : 0.18;
-    const timePressure = Math.max(0, this.gameplayTime - 18) / 130;
-    const levelPressure = this.level * 0.015;
-    return Math.min(1, preset + timePressure + levelPressure);
-  }
-
-  private scheduleNextFlame(delay = this.nextFlameDelay()): void {
+  private scheduleNextFlame(delay = NEXT_FLAME_DELAY): void {
     this.flameSide = Math.random() < 0.5 ? "left" : "right";
     this.nextFlameRow = null;
     this.nextFlameTimer = delay;
@@ -524,13 +557,6 @@ export class Game {
     this.setPhase("result");
   }
 
-  private updateLevel(): void {
-    // Exact feature-phone level-up thresholds and level-up point award are still
-    // not recoverable from authoritative sources. Keep this tuning isolated rather
-    // than presenting it as original behavior; the confirmed cap is 99.
-    this.level = Math.min(99, Math.floor(this.totalExploded / 20));
-  }
-
   private isGameplayPhase(): boolean {
     return this.phase === "idle" || this.phase === "rotating" || this.phase === "flamePassing" ||
       this.phase === "fuseBurning" || this.phase === "exploding" || this.phase === "falling" || this.phase === "spawning";
@@ -549,7 +575,8 @@ export class Game {
     this.phaseTimer = 0;
     this.flame = null;
     this.nextFlameTimer = FIRST_FLAME_GRACE;
-    this.pressureTimer = INITIAL_PRESSURE_DELAY;
+    this.raiseInterval = INITIAL_RAISE_DELAY;
+    this.pressureTimer = this.raiseInterval;
     this.gameplayTime = 0;
     this.flameSide = Math.random() < 0.5 ? "left" : "right";
     this.nextFlameRow = null;
@@ -559,6 +586,7 @@ export class Game {
     this.particles = [];
     this.flashes = [];
     this.level = 0;
+    this.levelProgress = 0;
     this.score = 0;
     this.combo = 0;
     this.bestCombo = 0;
