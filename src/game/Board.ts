@@ -2,7 +2,7 @@ import type { Bomb, BoardLayout, Cell } from "./Types";
 import { makeConnectors, rotateConnectors } from "./Rules";
 
 const CELL_MOVE_SPEED = 9;
-const DEFAULT_STARTING_ROWS = 4;
+const DEFAULT_STARTING_ROWS = 5;
 
 export class Board {
   readonly layout: BoardLayout;
@@ -17,19 +17,28 @@ export class Board {
     this.reset();
   }
 
+  get previewRow(): number {
+    return this.layout.rows - 1;
+  }
+
+  get playableRows(): number {
+    return this.layout.rows - 1;
+  }
+
   reset(startingRows = DEFAULT_STARTING_ROWS): void {
     this.nextId = 1;
     this.randomSeed = 7229;
-    const firstFilledRow = Math.max(0, this.layout.rows - startingRows);
-    
+    const firstFilledRow = Math.max(0, this.playableRows - startingRows);
     this.cells = Array.from({ length: this.layout.rows }, () => Array(this.layout.cols).fill(null));
-    
-    for (let row = 0; row < this.layout.rows; row++) {
-      for (let col = 0; col < this.layout.cols; col++) {
-        if (row >= firstFilledRow) {
-          this.cells[row][col] = this.createBomb(row, col, 0);
-        }
+
+    for (let row = firstFilledRow; row < this.playableRows; row += 1) {
+      for (let col = 0; col < this.layout.cols; col += 1) {
+        this.cells[row][col] = this.createBomb(row, col, 0);
       }
+    }
+
+    for (let col = 0; col < this.layout.cols; col += 1) {
+      this.cells[this.previewRow][col] = this.createBomb(this.previewRow, col, 0);
     }
   }
 
@@ -41,8 +50,11 @@ export class Board {
   }
 
   rotate(row: number, col: number, clockwise: boolean): boolean {
-    const bomb = this.get(row, col);
+    if (row >= this.playableRows) {
+      return false;
+    }
 
+    const bomb = this.get(row, col);
     if (!bomb || bomb.state !== "normal") {
       return false;
     }
@@ -61,7 +73,6 @@ export class Board {
 
   setBombState(bomb: Bomb, state: Bomb["state"]): void {
     const current = this.get(bomb.row, bomb.col);
-
     if (current?.id === bomb.id) {
       current.state = state;
       current.stateAge = 0;
@@ -69,22 +80,20 @@ export class Board {
   }
 
   applyGravity(): void {
-    const { rows, cols } = this.layout;
+    const { cols } = this.layout;
 
     for (let col = 0; col < cols; col += 1) {
       const survivors: Bomb[] = [];
 
-      for (let row = rows - 1; row >= 0; row -= 1) {
+      for (let row = this.playableRows - 1; row >= 0; row -= 1) {
         const bomb = this.cells[row][col];
-
         if (bomb) {
           survivors.push(bomb);
         }
       }
 
-      for (let row = rows - 1; row >= 0; row -= 1) {
-        const survivor = survivors[rows - 1 - row];
-
+      for (let row = this.playableRows - 1; row >= 0; row -= 1) {
+        const survivor = survivors[this.playableRows - 1 - row];
         if (survivor) {
           survivor.row = row;
           survivor.col = col;
@@ -101,30 +110,32 @@ export class Board {
   }
 
   addPressureRow(): void {
-    const { rows, cols } = this.layout;
+    const { cols } = this.layout;
+    const incoming = this.cells[this.previewRow].slice();
 
-    for (let row = 0; row < rows - 1; row += 1) {
+    for (let row = 0; row < this.playableRows - 1; row += 1) {
       for (let col = 0; col < cols; col += 1) {
         const bomb = this.cells[row + 1][col];
         this.cells[row][col] = bomb;
-
         if (bomb) {
-          bomb.row = row;
-          bomb.col = col;
-          bomb.targetX = this.cellCenterX(col);
-          bomb.targetY = this.cellCenterY(row);
-          bomb.spawnDelay = 0;
-          bomb.state = "normal";
+          this.moveBomb(bomb, row, col);
         }
       }
     }
 
-    const bottomRow = rows - 1;
+    const bottomRow = this.playableRows - 1;
+    for (let col = 0; col < cols; col += 1) {
+      const bomb = incoming[col];
+      this.cells[bottomRow][col] = bomb;
+      if (bomb) {
+        this.moveBomb(bomb, bottomRow, col);
+      }
+    }
 
     for (let col = 0; col < cols; col += 1) {
-      const bomb = this.createBomb(bottomRow, col, col * 18);
-      bomb.visualY = this.cellCenterY(rows);
-      this.cells[bottomRow][col] = bomb;
+      const bomb = this.createBomb(this.previewRow, col, col * 18);
+      bomb.visualY = this.cellCenterY(this.layout.rows);
+      this.cells[this.previewRow][col] = bomb;
     }
   }
 
@@ -138,7 +149,6 @@ export class Board {
         }
 
         bomb.stateAge += dt;
-
         const speed = CELL_MOVE_SPEED * this.layout.cellSize * dt;
         const dx = bomb.targetX - bomb.visualX;
         const dy = bomb.targetY - bomb.visualY;
@@ -168,7 +178,7 @@ export class Board {
   }
 
   highestOccupiedRow(): number | null {
-    for (let row = 0; row < this.layout.rows; row += 1) {
+    for (let row = 0; row < this.playableRows; row += 1) {
       if (this.hasBombInRow(row)) {
         return row;
       }
@@ -178,21 +188,16 @@ export class Board {
 
   occupiedRows(): number[] {
     const rows: number[] = [];
-
-    for (let row = 0; row < this.layout.rows; row += 1) {
+    for (let row = 0; row < this.playableRows; row += 1) {
       if (this.hasBombInRow(row)) {
         rows.push(row);
       }
     }
-
     return rows;
   }
 
   cellCenter(row: number, col: number): { x: number; y: number } {
-    return {
-      x: this.cellCenterX(col),
-      y: this.cellCenterY(row)
-    };
+    return { x: this.cellCenterX(col), y: this.cellCenterY(row) };
   }
 
   cellCenterX(col: number): number {
@@ -201,6 +206,15 @@ export class Board {
 
   cellCenterY(row: number): number {
     return this.layout.y + row * this.layout.cellSize + this.layout.cellSize / 2;
+  }
+
+  private moveBomb(bomb: Bomb, row: number, col: number): void {
+    bomb.row = row;
+    bomb.col = col;
+    bomb.targetX = this.cellCenterX(col);
+    bomb.targetY = this.cellCenterY(row);
+    bomb.spawnDelay = 0;
+    bomb.state = "normal";
   }
 
   private createBomb(row: number, col: number, spawnDelay: number): Bomb {
