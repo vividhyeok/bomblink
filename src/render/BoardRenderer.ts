@@ -30,16 +30,11 @@ export class BoardRenderer {
     this.drawPreviewRow(ctx, layout);
     this.drawDangerLine(ctx, layout, dangerRow, dangerWarning && Math.sin(cursor.blink * 9) > 0);
     this.drawNextFlameMarker(ctx, layout, nextFlameRow, nextFlameSide, phase, fireWarning);
-
-    // Each bomb visibly owns exactly one fuse. The line is classified by where
-    // THAT fuse points, not by a symmetric shared-pipe rule.
     this.drawFuseNetwork(ctx, layout, cells);
 
     for (const row of cells) {
       for (const bomb of row) {
-        if (bomb) {
-          this.bombRenderer.render(ctx, bomb, layout.cellSize);
-        }
+        if (bomb) this.bombRenderer.render(ctx, bomb, layout.cellSize);
       }
     }
 
@@ -81,7 +76,6 @@ export class BoardRenderer {
   private drawCells(ctx: CanvasRenderingContext2D, layout: BoardLayout): void {
     ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
     ctx.lineWidth = 1;
-
     for (let col = 1; col < layout.cols; col += 1) {
       const x = layout.x + col * layout.cellSize;
       ctx.beginPath();
@@ -89,7 +83,6 @@ export class BoardRenderer {
       ctx.lineTo(x, layout.y + layout.rows * layout.cellSize);
       ctx.stroke();
     }
-
     for (let row = 1; row < layout.rows; row += 1) {
       const y = layout.y + row * layout.cellSize;
       ctx.beginPath();
@@ -121,7 +114,6 @@ export class BoardRenderer {
 
   private drawFuseNetwork(ctx: CanvasRenderingContext2D, layout: BoardLayout, cells: Cell[][]): void {
     const previewRow = layout.rows - 1;
-
     for (let row = 0; row < layout.rows; row += 1) {
       for (let col = 0; col < layout.cols; col += 1) {
         const bomb = cells[row]?.[col] ?? null;
@@ -153,10 +145,6 @@ export class BoardRenderer {
     if (active && targetRow >= 0 && targetRow < previewRow && targetCol >= 0 && targetCol < layout.cols) {
       const target = cells[targetRow]?.[targetCol] ?? null;
       if (target) {
-        // Directed-chain semantics: this fuse is genuinely usable only if it
-        // points to a bomb that can be the currently exploding target. Special
-        // bombs still have a fuse target for ignition/chain purposes, even though
-        // they cannot be rotated themselves.
         status = "linked";
         const targetRadius = layout.cellSize * (target.kind === "bonus" ? 0.36 : 0.32);
         end = offsetPoint(target.visualX, target.visualY, opposite(direction), targetRadius + 1);
@@ -174,7 +162,6 @@ export class BoardRenderer {
 
     ctx.save();
     if (!active) ctx.globalAlpha = 0.42;
-
     ctx.strokeStyle = outline;
     ctx.lineWidth = status === "open" ? 5 : 7;
     ctx.lineCap = "round";
@@ -193,7 +180,6 @@ export class BoardRenderer {
     ctx.setLineDash([]);
 
     this.drawFuseTip(ctx, end.x, end.y, direction, status);
-
     if (status === "linked") {
       ctx.strokeStyle = "rgba(255,255,220,0.95)";
       ctx.lineWidth = 1.5;
@@ -206,23 +192,15 @@ export class BoardRenderer {
       ctx.arc(end.x, end.y, 2.7, 0, Math.PI * 2);
       ctx.fill();
     }
-
     ctx.restore();
   }
 
-  private drawFuseTip(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    direction: Direction,
-    status: "linked" | "fire" | "open"
-  ): void {
+  private drawFuseTip(ctx: CanvasRenderingContext2D, x: number, y: number, direction: Direction, status: "linked" | "fire" | "open"): void {
     const forward = vector(direction);
     const side = { x: -forward.y, y: forward.x };
     const size = status === "open" ? 3.5 : 4.5;
     const backX = x - forward.x * size * 1.5;
     const backY = y - forward.y * size * 1.5;
-
     ctx.fillStyle = status === "linked" ? "#fffbe0" : status === "fire" ? "#ffe15c" : "#8f5057";
     ctx.beginPath();
     ctx.moveTo(x + forward.x * 1.5, y + forward.y * 1.5);
@@ -239,57 +217,35 @@ export class BoardRenderer {
     const bomb = cells[cursor.row]?.[cursor.col] ?? null;
     const status = bomb ? this.fuseStatus(layout, cells, bomb) : "empty";
     const flash = Math.sin(cursor.blink * 11) > 0;
-
-    const statusColor =
-      status === "linked" ? "#9cff82" :
-      status === "fire" ? "#ffd85a" :
-      status === "open" ? "#ff9c91" : "#ffffff";
+    const statusColor = status === "linked" ? "#9cff82" : status === "fire" ? "#ffd85a" : status === "open" ? "#ff9c91" : "#ffffff";
 
     ctx.strokeStyle = "#121a22";
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
-
     ctx.strokeStyle = flash ? statusColor : "rgba(255,255,255,0.78)";
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
-
     ctx.fillStyle = statusColor;
-    for (let i = -1; i <= 1; i += 1) {
-      ctx.fillRect(x + i * 5 - 1.5, y - radius - 4, 3, 3);
-    }
+    for (let i = -1; i <= 1; i += 1) ctx.fillRect(x + i * 5 - 1.5, y - radius - 4, 3, 3);
   }
 
-  private fuseStatus(
-    layout: BoardLayout,
-    cells: Cell[][],
-    bomb: Bomb
-  ): "linked" | "fire" | "open" {
+  private fuseStatus(layout: BoardLayout, cells: Cell[][], bomb: Bomb): "linked" | "fire" | "open" {
     const direction = bomb.connectors[0];
     if (!direction) return "open";
     const delta = DELTA[direction];
     const row = bomb.row + delta.row;
     const col = bomb.col + delta.col;
     const previewRow = layout.rows - 1;
-
-    if (row >= 0 && row < previewRow && col >= 0 && col < layout.cols && cells[row]?.[col]) {
-      return "linked";
-    }
-    if ((bomb.col === 0 && direction === "left") || (bomb.col === layout.cols - 1 && direction === "right")) {
-      return "fire";
-    }
+    if (row >= 0 && row < previewRow && col >= 0 && col < layout.cols && cells[row]?.[col]) return "linked";
+    if ((bomb.col === 0 && direction === "left") || (bomb.col === layout.cols - 1 && direction === "right")) return "fire";
     return "open";
   }
 
-  private drawDangerLine(
-    ctx: CanvasRenderingContext2D,
-    layout: BoardLayout,
-    dangerRow: number,
-    blink: boolean
-  ): void {
+  private drawDangerLine(ctx: CanvasRenderingContext2D, layout: BoardLayout, dangerRow: number, blink: boolean): void {
     const y = layout.y + dangerRow * layout.cellSize + 1;
     ctx.strokeStyle = blink ? "#ffec62" : "rgb(255 96 72 / 0.65)";
     ctx.lineWidth = 2;
@@ -301,24 +257,13 @@ export class BoardRenderer {
     ctx.setLineDash([]);
   }
 
-  private drawNextFlameMarker(
-    ctx: CanvasRenderingContext2D,
-    layout: BoardLayout,
-    nextFlameRow: number | null,
-    nextFlameSide: FlameSide,
-    phase: Phase,
-    fireWarning: boolean
-  ): void {
-    if (phase === "banner" || phase === "ready" || phase === "flamePassing" || phase === "fuseBurning") {
-      return;
-    }
-
+  private drawNextFlameMarker(ctx: CanvasRenderingContext2D, layout: BoardLayout, nextFlameRow: number | null, nextFlameSide: FlameSide, phase: Phase, fireWarning: boolean): void {
+    if (phase === "banner" || phase === "ready" || phase === "flamePassing" || phase === "fuseBurning") return;
     const x = nextFlameSide === "left" ? 32 : 208;
     const topY = layout.y - 14;
     const time = performance.now() / 1000;
     const blink = fireWarning ? Math.floor(time * 16) % 2 === 0 : true;
     if (!blink) return;
-
     ctx.fillStyle = fireWarning ? "#ff3b30" : "#ff9500";
     ctx.beginPath();
     ctx.moveTo(x - 6, topY);
