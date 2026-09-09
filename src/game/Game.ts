@@ -33,7 +33,7 @@ const BOARD_LAYOUT: BoardLayout = {
 };
 
 const HUD_LABELS: HudLabel[] = ["FIRE", "FLAMES", "TOTAL", "ATTACK", "LEFT"];
-const STARTING_ROWS = 4;
+const STARTING_ROWS = 5;
 const DEATH_ROW = 0;
 const FIRST_FLAME_GRACE = 12;
 const INITIAL_PRESSURE_DELAY = 18;
@@ -51,7 +51,7 @@ export class Game {
   private readonly board = new Board(BOARD_LAYOUT);
   private readonly sound = new RetroSound();
   private readonly shake = new ScreenShake();
-  private cursor: Cursor = { row: BOARD_LAYOUT.rows - 1, col: Math.floor(BOARD_LAYOUT.cols / 2), blink: 0 };
+  private cursor: Cursor = { row: this.board.playableRows - 1, col: Math.floor(BOARD_LAYOUT.cols / 2), blink: 0 };
   private phase: Phase = "banner";
   private previousPhase: Phase = "banner";
   private phaseTimer = 0;
@@ -296,7 +296,7 @@ export class Game {
 
     for (const move of moves) {
       if (!this.input.consume(move.action)) continue;
-      const row = clamp(this.cursor.row + move.row, 0, this.board.layout.rows - 1);
+      const row = clamp(this.cursor.row + move.row, 0, this.board.playableRows - 1);
       const col = clamp(this.cursor.col + move.col, 0, this.board.layout.cols - 1);
       if (row !== this.cursor.row || col !== this.cursor.col) {
         this.cursor.row = row;
@@ -330,7 +330,7 @@ export class Game {
 
     if (this.mode === "flames100") this.flamesRemaining = Math.max(0, this.flamesRemaining - 1);
     this.combo = 0;
-    this.flame = createFlameLine(side, this.board.layout.rows - 1, this.flameDuration());
+    this.flame = createFlameLine(side, this.board.playableRows - 1, this.flameDuration());
     this.sound.flame();
     this.nextFlameRow = null;
     this.setPhase("flamePassing");
@@ -374,7 +374,8 @@ export class Game {
   private startChain(row: number, col: number): void {
     const bomb = this.board.get(row, col);
     if (!bomb) return;
-    const chain = findConnectedChain(this.board.cells, row, col);
+    const playableCells = this.board.cells.slice(0, this.board.playableRows);
+    const chain = findConnectedChain(playableCells, row, col);
     if (chain.length === 0) return;
 
     for (const node of chain) {
@@ -472,8 +473,6 @@ export class Game {
   }
 
   private updateLevel(): void {
-    // Exact original stage thresholds still need frame-by-frame verification.
-    // Keep stage progression independent from score so difficulty and scoring are no longer conflated.
     this.level = Math.min(99, Math.floor(this.totalExploded / 20));
   }
 
@@ -489,7 +488,7 @@ export class Game {
 
   private reset(): void {
     this.board.reset(STARTING_ROWS);
-    this.cursor = { row: BOARD_LAYOUT.rows - 1, col: Math.floor(BOARD_LAYOUT.cols / 2), blink: 0 };
+    this.cursor = { row: this.board.playableRows - 1, col: Math.floor(BOARD_LAYOUT.cols / 2), blink: 0 };
     this.phase = "banner";
     this.previousPhase = "banner";
     this.phaseTimer = 0;
