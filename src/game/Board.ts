@@ -86,6 +86,10 @@ export class Board {
    * piece. The anchor fuse is aimed down at a supporting bomb, matching the
    * implementation-level reconstruction and preventing an arbitrary dead fuse.
    *
+   * The non-anchor cells keep hidden internal directions that point toward the
+   * anchor. This reproduces the preserved reconstruction's behavior where lighting
+   * the active segment propagates through the whole rigid bonus bomb.
+   *
    * If there is no legal supported horizontal span yet, keep the bonus queued and
    * retry after a later board change instead of fabricating an impossible piece.
    */
@@ -124,7 +128,7 @@ export class Board {
       }
 
       // The preserved implementation deliberately chooses a supporting bomb and
-      // points the long bomb's one active fuse toward it.
+      // points the long bomb's one visible/active fuse toward it.
       if (supportCols.length > 0) candidates.push({ startCol, row, supportCols });
     }
 
@@ -132,12 +136,18 @@ export class Board {
 
     const candidate = candidates[this.nextRandomInt(candidates.length)];
     const anchorCol = candidate.supportCols[this.nextRandomInt(candidate.supportCols.length)];
+    const anchorIndex = anchorCol - candidate.startCol;
     const pieceId = this.nextPieceId++;
 
     for (let index = 0; index < size; index += 1) {
       const col = candidate.startCol + index;
-      const fuseActive = col === anchorCol;
-      const connectors: Direction[] = fuseActive ? ["down"] : [];
+      const fuseActive = index === anchorIndex;
+      const connectors: Direction[] = fuseActive
+        ? ["down"]
+        : index < anchorIndex
+          ? ["right"]
+          : ["left"];
+
       const bomb = this.createBomb(
         candidate.row,
         col,
