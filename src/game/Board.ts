@@ -1,17 +1,12 @@
 import type { Bomb, BoardLayout, BonusSize, Cell, DifficultySetting, Direction } from "./Types";
 import { makeConnectors, rotateConnectors } from "./Rules";
 
-// The surviving Android reconstruction moves falling bombs one cell in about 0.25s.
-// Keep this as a reference-derived value rather than an original-source claim.
-const CELL_MOVE_SPEED = 4;
+// Reference reconstruction timing: gravity falls one cell in ~0.25s, while a
+// manual/automatic board raise takes ~0.75s for one row.
+const FALL_MOVE_SPEED = 4;
+const RAISE_MOVE_SPEED = 1 / 0.75;
 const DEFAULT_STARTING_ROWS = 4;
 
-/**
- * Null38's feature-phone reconstruction generates at most one fixed square bomb
- * per incoming row. Its row-level chance is roughly 1/4, 1/3, 1/2 for
- * EASY/NORMAL/HARD. This is substantially less oppressive than the old per-cell
- * roll, which could create several unrotatable bombs in the same row.
- */
 const ROW_SPECIAL_CHANCE: Record<DifficultySetting, number> = {
   easy: 1 / 4,
   normal: 1 / 3,
@@ -26,6 +21,7 @@ export class Board {
   private nextPieceId = 1;
   private randomSeed = 7229;
   private pendingBonusSize: Exclude<BonusSize, 1> | null = null;
+  private movementSpeeds = new Map<number, number>();
 
   constructor(layout: BoardLayout) {
     this.layout = layout;
@@ -46,11 +42,10 @@ export class Board {
     this.nextPieceId = 1;
     this.randomSeed = 7229;
     this.pendingBonusSize = null;
+    this.movementSpeeds.clear();
     const firstFilledRow = Math.max(0, this.playableRows - startingRows);
     this.cells = Array.from({ length: this.layout.rows }, () => Array(this.layout.cols).fill(null));
 
-    // The implementation-level reconstruction starts with four ordinary rows.
-    // Do not put fixed obstacles or bonus pieces on the opening board.
     for (let row = firstFilledRow; row < this.playableRows; row += 1) {
       for (let col = 0; col < this.layout.cols; col += 1) {
         this.cells[row][col] = this.createBomb(row, col, 0, "normal", 1);
@@ -69,30 +64,16 @@ export class Board {
     if (row >= this.playableRows) return false;
 
     const bomb = this.get(row, col);
-    // Official manuals explicitly say the bonus(big) and square bombs cannot rotate.
     if (!bomb || bomb.state !== "normal" || bomb.kind !== "normal") return false;
 
     bomb.connectors = rotateConnectors(bomb.connectors, clockwise);
     return true;
   }
 
-  /** Queue a 2/3/4-cell bonus bomb after a 9/18/27-bomb continuous clear. */
   queueBonus(size: Exclude<BonusSize, 1>): void {
     this.pendingBonusSize = Math.max(this.pendingBonusSize ?? 0, size) as Exclude<BonusSize, 1>;
   }
 
-  /**
-   * Drop the queued long bonus bomb from above as a real horizontal multi-cell
-   * piece. The anchor fuse is aimed down at a supporting bomb, matching the
-   * implementation-level reconstruction and preventing an arbitrary dead fuse.
-   *
-   * The non-anchor cells keep hidden internal directions that point toward the
-   * anchor. This reproduces the preserved reconstruction's behavior where lighting
-   * the active segment propagates through the whole rigid bonus bomb.
-   *
-   * If there is no legal supported horizontal span yet, keep the bonus queued and
-   * retry after a later board change instead of fabricating an impossible piece.
-   */
   dropPendingBonus(): boolean {
     const size = this.pendingBonusSize;
     if (!size) return false;
@@ -115,8 +96,6 @@ export class Board {
         firstOccupied.push(first);
       }
 
-      // Falling from above: the first column that would collide determines the
-      // horizontal piece's landing height.
       const row = Math.min(...firstOccupied) - 1;
       if (row < 0 || row >= this.playableRows) continue;
 
@@ -127,8 +106,6 @@ export class Board {
         }
       }
 
-      // The preserved implementation deliberately chooses a supporting bomb and
-      // points the long bomb's one visible/active fuse toward it.
       if (supportCols.length > 0) candidates.push({ startCol, row, supportCols });
     }
 
@@ -160,10 +137,9 @@ export class Board {
         fuseActive
       );
 
-      // Logical landing position is reserved immediately; visual position starts
-      // above the frame so Board.update() animates the whole rigid piece downward.
       bomb.visualX = this.cellCenterX(col);
       bomb.visualY = this.layout.y - this.layout.cellSize / 2;
+      this.movementSpeeds.set(bomb.id, FALL_MOVE_SPEED);
       this.cells[candidate.row][col] = bomb;
     }
 
@@ -173,6 +149,7 @@ export class Board {
 
   clearBombs(bombs: Bomb[]): void {
     for (const bomb of bombs) {
+      this.movementSpeeds.delete(bomb.id);
       if (this.inBounds(bomb.row, bomb.col) && this.cells[bomb.row][bomb.col]?.id === bomb.id) {
         this.cells[bomb.row][bomb.col] = null;
       }
@@ -188,10 +165,9 @@ export class Board {
   }
 
   /**
-   * Resolve gravity one logical cell at a time. This matters for BombLink because
-   * each vertical one-cell fall flips a vertical fuse (up <-> down) in the best
-   * surviving implementation-level reconstruction. Long bonus pieces move as a
-   * rigid horizontal group rather than splitting into separate columns.
+   * Resolve logical gravity one cell at a time. Every vertical one-cell fall flips
+   * a vertical fuse. Rendering derives the in-between half-turns from visualY vs
+   * targetY, so a one-cell fall visibly turns 180°, two cells 360°, etc.
    */
   applyGravity(): void {
     let moved = true;
@@ -226,9 +202,8 @@ export class Board {
   }
 
   /**
-   * Raise one step. The non-interactive preview row becomes the new bottom
-   * playable row. Raising does not rotate fuses; the vertical flip belongs to
-   * downward falling only.
+   * The incoming row rises over ~0.75s. Raising does not flip the fuse: the 180°
+   * flip belongs only to gravity falling, matching the reconstruction source.
    */
   addPressureRow(difficulty: DifficultySetting = "normal"): void {
     const { cols } = this.layout;
@@ -238,7 +213,7 @@ export class Board {
       for (let col = 0; col < cols; col += 1) {
         const bomb = this.cells[row + 1][col];
         this.cells[row][col] = bomb;
-        if (bomb) this.moveBomb(bomb, row, col);
+        if (bomb) this.moveBomb(bomb, row, col, RAISE_MOVE_SPEED);
       }
     }
 
@@ -246,7 +221,7 @@ export class Board {
     for (let col = 0; col < cols; col += 1) {
       const bomb = incoming[col];
       this.cells[bottomRow][col] = bomb;
-      if (bomb) this.moveBomb(bomb, bottomRow, col);
+      if (bomb) this.moveBomb(bomb, bottomRow, col, RAISE_MOVE_SPEED);
     }
 
     this.generatePreviewRow(difficulty, true);
@@ -260,7 +235,8 @@ export class Board {
         if (!bomb) continue;
 
         bomb.stateAge += dt;
-        const speed = CELL_MOVE_SPEED * this.layout.cellSize * dt;
+        const cellsPerSecond = this.movementSpeeds.get(bomb.id) ?? FALL_MOVE_SPEED;
+        const speed = cellsPerSecond * this.layout.cellSize * dt;
         const dx = bomb.targetX - bomb.visualX;
         const dy = bomb.targetY - bomb.visualY;
         const distance = Math.hypot(dx, dy);
@@ -273,6 +249,7 @@ export class Board {
         } else {
           bomb.visualX = bomb.targetX;
           bomb.visualY = bomb.targetY;
+          this.movementSpeeds.delete(bomb.id);
         }
       }
     }
@@ -330,6 +307,7 @@ export class Board {
       const kind: Bomb["kind"] = col === obstructionCol ? "obstruction" : "normal";
       const bomb = this.createBomb(this.previewRow, col, col * 18, kind, 1);
       bomb.visualY = this.cellCenterY(this.layout.rows);
+      this.movementSpeeds.set(bomb.id, allowSpecials ? RAISE_MOVE_SPEED : FALL_MOVE_SPEED);
       this.cells[this.previewRow][col] = bomb;
     }
   }
@@ -371,6 +349,7 @@ export class Board {
       member.spawnDelay = 0;
       member.state = "normal";
       this.flipVerticalFuse(member);
+      this.movementSpeeds.set(member.id, FALL_MOVE_SPEED);
     }
 
     for (const member of members) {
@@ -387,6 +366,7 @@ export class Board {
     bomb.spawnDelay = 0;
     bomb.state = "normal";
     this.flipVerticalFuse(bomb);
+    this.movementSpeeds.set(bomb.id, FALL_MOVE_SPEED);
     this.cells[bomb.row][col] = bomb;
   }
 
@@ -398,13 +378,14 @@ export class Board {
     });
   }
 
-  private moveBomb(bomb: Bomb, row: number, col: number): void {
+  private moveBomb(bomb: Bomb, row: number, col: number, speed = FALL_MOVE_SPEED): void {
     bomb.row = row;
     bomb.col = col;
     bomb.targetX = this.cellCenterX(col);
     bomb.targetY = this.cellCenterY(row);
     bomb.spawnDelay = 0;
     bomb.state = "normal";
+    this.movementSpeeds.set(bomb.id, speed);
   }
 
   private createBomb(
