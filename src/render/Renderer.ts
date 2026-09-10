@@ -39,7 +39,6 @@ export class Renderer {
     this.effects.render(ctx, snapshot.layout, snapshot.flame, snapshot.burns, snapshot.flashes, snapshot.particles);
     ctx.restore();
 
-    this.drawFooter(snapshot);
     this.drawOverlay(snapshot);
 
     if (snapshot.combo >= 4 && (snapshot.phase === "exploding" || snapshot.phase === "falling" || snapshot.phase === "fuseBurning")) {
@@ -52,23 +51,19 @@ export class Renderer {
   private drawComboPopup(snapshot: GameSnapshot): void {
     const ctx = this.ctx;
     const cx = snapshot.canvasWidth / 2;
-    const cy = snapshot.layout.y + (snapshot.layout.rows - 1) * snapshot.layout.cellSize * 0.4;
-    const bounce = Math.sin(performance.now() / 80) * 3;
+    const cy = snapshot.layout.y + 64;
+    const bounce = Math.sin(performance.now() / 95) * 2;
 
     ctx.save();
     ctx.translate(cx, cy + bounce);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "bold 24px 'Trebuchet MS', Arial, sans-serif";
-    ctx.fillStyle = "#ffe23e";
-    ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 4;
-    ctx.strokeText("COMBO !!", 0, -15);
-    ctx.fillText("COMBO !!", 0, -15);
-    ctx.font = "bold 36px 'Trebuchet MS', Arial, sans-serif";
-    ctx.fillStyle = "#ff6b3e";
-    ctx.strokeText(snapshot.combo.toString(), 0, 15);
-    ctx.fillText(snapshot.combo.toString(), 0, 15);
+    ctx.font = "bold 11px 'Courier New', monospace";
+    ctx.fillStyle = "#fff4bd";
+    ctx.strokeStyle = "rgba(64,39,32,0.82)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(`${snapshot.combo} COMBO`, 0, 0);
+    ctx.fillText(`${snapshot.combo} COMBO`, 0, 0);
     ctx.restore();
   }
 
@@ -76,17 +71,38 @@ export class Renderer {
     this.ctx.clearRect(0, 0, snapshot.canvasWidth, snapshot.canvasHeight);
   }
 
+  /**
+   * A low-resolution blue LCD-style backdrop inspired by the feature-phone game.
+   * It intentionally avoids copying the original background image.
+   */
   private drawBackground(snapshot: GameSnapshot): void {
     const ctx = this.ctx;
     const { canvasWidth, canvasHeight } = snapshot;
-    ctx.fillStyle = "#1ba1e2";
+    const grad = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+    grad.addColorStop(0, "#d4edf8");
+    grad.addColorStop(0.22, "#8dc8e9");
+    grad.addColorStop(1, "#58a4d7");
+    ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-    for (let x = 0; x < canvasWidth; x += 16) ctx.fillRect(x, 0, 1, canvasHeight);
-    for (let y = 0; y < canvasHeight; y += 16) ctx.fillRect(0, y, canvasWidth, 1);
-  }
 
-  private drawFooter(_snapshot: GameSnapshot): void {
+    const blocks = [
+      [6, 75, 28, 64], [2, 156, 20, 74], [219, 88, 17, 88], [217, 208, 20, 68],
+      [72, 5, 46, 17], [129, 15, 34, 12], [8, 286, 27, 43], [207, 293, 29, 38]
+    ] as const;
+    for (let i = 0; i < blocks.length; i += 1) {
+      const [x, y, w, h] = blocks[i];
+      ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.10)" : "rgba(36,111,166,0.09)";
+      ctx.fillRect(x, y, w, h);
+    }
+
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.lineWidth = 1;
+    for (let y = 8; y < canvasHeight; y += 24) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasWidth, y);
+      ctx.stroke();
+    }
   }
 
   private drawOverlay(snapshot: GameSnapshot): void {
@@ -95,35 +111,37 @@ export class Renderer {
     const ctx = this.ctx;
     const isBanner = snapshot.phase === "banner" || snapshot.phase === "ready";
     const isResult = snapshot.phase === "result" || snapshot.phase === "gameOver";
-    ctx.fillStyle = isBanner ? "rgb(6 12 24 / 0.86)" : "rgb(6 12 24 / 0.76)";
-    ctx.fillRect(24, isResult ? 112 : 128, 192, isResult ? 94 : 58);
-    ctx.strokeStyle = "#ffcd5a";
+    const y = isResult ? 116 : 134;
+    const h = isResult ? 86 : 48;
+
+    ctx.fillStyle = "rgba(28,67,99,0.84)";
+    ctx.fillRect(32, y, 176, h);
+    ctx.strokeStyle = "#f1d176";
     ctx.lineWidth = 2;
-    ctx.strokeRect(28, isResult ? 116 : 132, 184, isResult ? 86 : 50);
-    ctx.fillStyle = "#fff6a8";
+    ctx.strokeRect(34, y + 2, 172, h - 4);
+    ctx.fillStyle = "#fff5bb";
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
 
     if (isResult) {
-      ctx.font = "16px \"Courier New\", monospace";
-      ctx.fillText(snapshot.message, 120, 132);
-      ctx.fillStyle = "#c9f4ff";
-      ctx.font = "9px \"Courier New\", monospace";
-      ctx.fillText(`LV ${snapshot.level.toString().padStart(2, "0")}`, 120, 151);
-      ctx.fillText(`SCORE ${snapshot.score.toString().padStart(5, "0")}`, 120, 164);
-      ctx.fillText(`BEST COMBO ${snapshot.bestCombo.toString().padStart(2, "0")}`, 120, 177);
-      ctx.fillText(`BOMBS ${snapshot.totalExploded.toString().padStart(3, "0")}`, 120, 190);
+      ctx.font = "bold 14px \"Courier New\", monospace";
+      ctx.fillText(snapshot.message, 120, y + 17);
+      ctx.fillStyle = "#e5f6ff";
+      ctx.font = "bold 8px \"Courier New\", monospace";
+      ctx.fillText(`LV ${snapshot.level.toString().padStart(2, "0")}`, 120, y + 38);
+      ctx.fillText(`SCORE ${snapshot.score.toString().padStart(8, "0")}`, 120, y + 51);
+      ctx.fillText(`BEST ${snapshot.bestCombo.toString().padStart(2, "0")}  BOMBS ${snapshot.totalExploded.toString().padStart(3, "0")}`, 120, y + 65);
       ctx.textAlign = "left";
       return;
     }
 
-    ctx.font = `${isBanner ? 18 : 16}px "Courier New", monospace`;
-    ctx.fillText(snapshot.message, 120, 153);
+    ctx.font = `bold ${isBanner ? 16 : 14}px "Courier New", monospace`;
+    ctx.fillText(snapshot.message, 120, y + 20);
 
     if (isBanner) {
-      ctx.fillStyle = "#c9f4ff";
-      ctx.font = "9px \"Courier New\", monospace";
-      ctx.fillText(snapshot.mode === "endless" ? "ENDLESS" : "100 ATTACK", 120, 171);
+      ctx.fillStyle = "#d9effa";
+      ctx.font = "bold 8px \"Courier New\", monospace";
+      ctx.fillText(snapshot.mode === "endless" ? "ENDLESS" : "100 ATTACK", 120, y + 36);
     }
 
     ctx.textAlign = "left";
