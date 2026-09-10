@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
-  background: #111;
-  font-family: "Trebuchet MS", Arial, sans-serif;
+  background: #090d12;
+  font-family: "Courier New", monospace;
   touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -15,9 +15,7 @@
 html,
 body {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
   width: 100%;
   height: var(--app-height, 100vh);
   margin: 0;
@@ -30,8 +28,10 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 16px calc(30px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(180deg, #1b2638, #0f1622);
+  padding: 12px 12px calc(22px + env(safe-area-inset-bottom, 0px));
+  background:
+    radial-gradient(circle at 50% 0%, rgba(94, 139, 172, 0.18), transparent 42%),
+    linear-gradient(180deg, #131b24, #080c11 72%);
 }
 
 .shell {
@@ -41,42 +41,52 @@ body {
   justify-content: center;
   width: 100%;
   height: 100%;
-  max-width: 480px;
+  max-width: 410px;
 }
 
 #game {
-  width: 100%;
+  width: min(100%, 360px);
   aspect-ratio: 240 / 360;
   min-height: 0;
-  max-height: calc(100% - 180px);
-  border: 4px solid #000;
-  border-radius: 8px;
-  background: #1ba1e2;
+  max-height: calc(100% - 160px);
+  border: 2px solid #c6cbd0;
+  border-radius: 2px;
+  background: #79b9e7;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 0 0 3px #343b42,
+    0 0 0 5px #11161b,
+    0 14px 30px rgba(0, 0, 0, 0.52);
   object-fit: contain;
 }
 
 .virtual-controls {
   display: flex;
-  width: 100%;
+  width: min(100%, 390px);
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  background: #1e293b;
-  border-radius: 16px;
-  box-shadow: inset 0 4px 12px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.5);
-  margin-top: 16px;
+  padding: 11px 15px;
+  margin-top: 13px;
+  border: 1px solid #68727b;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #4e5861, #2c333a 48%, #171c21);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -3px 7px rgba(0, 0, 0, 0.36),
+    0 7px 17px rgba(0, 0, 0, 0.34);
 }
 
 .joystick {
   position: relative;
-  width: 130px;
-  height: 130px;
+  width: 108px;
+  height: 108px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #334155, #0f172a);
-  box-shadow: inset 0 4px 8px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.5);
+  background: radial-gradient(circle, #48525c 0 24%, #242b31 25% 58%, #11161b 59% 100%);
+  border: 1px solid #75808a;
+  box-shadow:
+    inset 0 3px 7px rgba(0, 0, 0, 0.65),
+    0 2px 4px rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -93,39 +103,38 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 40px;
-  height: 40px;
+  width: 31px;
+  height: 31px;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #64748b, #334155);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+  background: radial-gradient(circle at 35% 30%, #7f8a93, #3c454d 64%, #272d33);
+  border: 1px solid #171b20;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.45);
   pointer-events: none;
 }
 
 .joy-btn {
   position: absolute;
-  background: transparent;
-  border: none;
-  width: 45px;
-  height: 45px;
+  width: 39px;
+  height: 39px;
+  border: 0;
   border-radius: 50%;
+  background: transparent;
+  color: rgba(238, 244, 247, 0.72);
+  font-family: inherit;
+  font-size: 13px;
   cursor: pointer;
   touch-action: manipulation;
   outline: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 16px;
 }
 
 .joy-btn:active {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.09);
 }
 
-.joy-btn.up { top: 6px; left: 50%; transform: translateX(-50%); }
-.joy-btn.down { bottom: 6px; left: 50%; transform: translateX(-50%); }
-.joy-btn.left { left: 6px; top: 50%; transform: translateY(-50%); }
-.joy-btn.right { right: 6px; top: 50%; transform: translateY(-50%); }
+.joy-btn.up { top: 4px; left: 50%; transform: translateX(-50%); }
+.joy-btn.down { bottom: 4px; left: 50%; transform: translateX(-50%); }
+.joy-btn.left { left: 4px; top: 50%; transform: translateY(-50%); }
+.joy-btn.right { right: 4px; top: 50%; transform: translateY(-50%); }
 
 .action-buttons {
   display: flex;
@@ -134,38 +143,82 @@ body {
 }
 
 .action-btn {
-  width: 80px;
-  height: 80px;
+  width: 69px;
+  height: 69px;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #ef4444, #991b1b);
-  border: 4px solid #7f1d1d;
-  color: #fff;
-  font-weight: bold;
-  font-size: 15px;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-  box-shadow: inset 0 2px 4px rgba(255,255,255,0.3), 0 8px 16px rgba(0,0,0,0.5);
+  border: 2px solid #7d6b47;
+  background: radial-gradient(circle at 32% 28%, #f2d99a, #b59a5e 50%, #6c5a3b 100%);
+  color: #263139;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px rgba(255,255,255,0.35);
+  box-shadow:
+    inset 0 2px 3px rgba(255,255,255,0.38),
+    inset 0 -3px 5px rgba(40,30,16,0.35),
+    0 4px 8px rgba(0,0,0,0.38);
   cursor: pointer;
   touch-action: manipulation;
-  transition: transform 0.1s, box-shadow 0.1s;
+  transition: transform 70ms ease, box-shadow 70ms ease;
 }
 
 .action-btn.raise {
-  width: 58px;
-  height: 58px;
-  font-size: 11px;
-  background: radial-gradient(circle at 30% 30%, #60a5fa, #1d4ed8);
-  border-color: #1e3a8a;
+  width: 52px;
+  height: 52px;
+  border-color: #586b7d;
+  background: radial-gradient(circle at 32% 28%, #dcecf5, #91a9b9 55%, #536875 100%);
+  color: #1c2c38;
+  font-size: 9px;
 }
 
 .action-btn:active {
-  transform: translateY(4px);
-  box-shadow: inset 0 2px 4px rgba(255,255,255,0.3), 0 4px 8px rgba(0,0,0,0.5);
+  transform: translateY(2px);
+  box-shadow: inset 0 3px 5px rgba(0,0,0,0.22), 0 2px 4px rgba(0,0,0,0.35);
 }
 
 .controls {
   width: 100%;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
   margin-top: 8px;
+  text-align: center;
+  color: rgba(218, 228, 235, 0.48);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+@media (pointer: fine) and (min-height: 720px) {
+  .virtual-controls {
+    opacity: 0.78;
+  }
+}
+
+@media (max-height: 650px) {
+  body {
+    padding-top: 6px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #game {
+    max-height: calc(100% - 132px);
+  }
+
+  .virtual-controls {
+    margin-top: 8px;
+    padding: 7px 12px;
+  }
+
+  .joystick {
+    width: 91px;
+    height: 91px;
+  }
+
+  .action-btn {
+    width: 59px;
+    height: 59px;
+  }
+
+  .action-btn.raise {
+    width: 46px;
+    height: 46px;
+  }
 }
