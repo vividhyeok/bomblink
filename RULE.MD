@@ -6,13 +6,11 @@
 
 - logical canvas: `240 x 360`
 - board: `5 columns x 8 logical rows`
-- cell size: `32 px`
 - playable rows: `row 0 .. row 6`
 - preview row: `row 7`
 - death row: `row 0`
 - 시작 시 playable 영역의 아래 **4행**이 일반 폭탄으로 채워집니다.
-- preview row는 다음 상승 때 들어올 1개 행입니다.
-- 커서는 preview row로 들어갈 수 없습니다.
+- preview row는 다음 상승 때 들어올 행이며 직접 조작/연쇄 대상이 아닙니다.
 
 ## Normal Bomb / Fuse
 
@@ -26,17 +24,33 @@ up | right | down | left
 
 ## Directed Chain Rule
 
-폭탄 A가 이미 폭발하고 있고 B가 A의 이웃이라면 **B의 심지가 A를 향할 때만** B로 연쇄가 전달됩니다.
+폭발 중인 A에서 이웃 B로 불이 전달되려면 **B의 심지가 A를 향해야 합니다.**
 
 ```text
 [A][B]
 ```
 
-A가 먼저 폭발했다면 B의 fuse가 `left`일 때 B가 연쇄됩니다.
+A가 먼저 폭발했다면 B가 `left`를 향할 때만 B가 이어서 폭발합니다. A가 `right`를 향하는 것은 조건이 아닙니다.
 
-A가 `right` 심지를 가진 것만으로 B가 폭발하는 것은 아닙니다.
+### Runtime propagation
 
-preview row는 연쇄 탐색에서 제외됩니다.
+연쇄 전체를 최초 점화 순간에 미리 계산하지 않습니다.
+
+각 폭탄이 폭발하면 약 `0.4s` 뒤에 그 폭탄의 네 이웃을 다시 검사합니다. 이때 **그 순간의 실제 fuse direction**으로 다음 폭탄의 점화 여부를 결정합니다.
+
+따라서 다음 플레이가 가능합니다.
+
+```text
+A 폭발
+  ↓ 0.4초 안에 B를 A쪽으로 회전
+B 점화 성공
+```
+
+반대로 처음에는 B가 A를 향하고 있었더라도 전파 판정 전에 B를 다른 방향으로 돌리면 그 edge는 끊어집니다.
+
+한 번 점화된 폭탄은 더 이상 회전할 수 없습니다. 아직 불이 도착하지 않은 일반 폭탄만 회전할 수 있습니다.
+
+이 방식은 기존의 `root ignition -> entire BFS precompute` 구현을 대체합니다.
 
 ## Edge Flame
 
@@ -47,36 +61,45 @@ preview row는 연쇄 탐색에서 제외됩니다.
 
 ### Flame Pause / Resume
 
-한 번의 불꽃 낙하는 첫 점화에서 끝나지 않습니다.
-
 1. 불꽃이 edge fuse에 닿으면 현재 위치에서 멈춥니다.
-2. 그 폭탄에서 directed chain이 시작됩니다.
-3. chain explosion 중에도 커서 이동/일반 폭탄 회전은 가능합니다.
-4. 연쇄 제거와 gravity가 끝나면 **같은 FlameEvent**가 다시 내려갑니다.
-5. 아래쪽의 다른 edge fuse를 만나면 또 다른 chain을 점화할 수 있습니다.
-6. 최하단까지 지나가야 한 번의 flame drop이 끝납니다.
+2. 그 폭탄에서 runtime directed chain이 시작됩니다.
+3. chain 중에도 커서 이동과 아직 점화되지 않은 일반 폭탄 회전이 가능합니다.
+4. 마지막 폭탄이 더 이상 연쇄를 만들지 못하면 chain 점수/레벨 진행을 확정합니다.
+5. 제거와 gravity가 끝나면 같은 FlameEvent가 다시 내려갑니다.
+6. 아래쪽의 다른 edge fuse를 만나면 별도 chain을 다시 만들 수 있습니다.
 
-따라서 `100 ATTACK`에서는 하나의 불꽃으로 여러 chain을 일으켜도 FLAMES는 추가로 줄지 않습니다.
+`100 ATTACK`에서는 이 전체 과정이 한 번의 flame drop으로 계산됩니다.
+
+## Timer Concurrency
+
+불꽃/상승 타이머를 회전 animation phase에 묶어 멈추지 않습니다.
+
+- `idle`: flame countdown + auto-raise countdown 진행
+- `rotating`: flame countdown + auto-raise countdown 계속 진행
+- `flamePassing`: auto-raise countdown 계속 진행
+- `fuseBurning / exploding / falling / spawning`: explosion 처리 중이므로 auto-raise countdown 정지
+
+따라서 반복 회전으로 다음 불꽃이나 자동 상승 시간을 인위적으로 늦출 수 없습니다.
 
 ## Raise / Incoming Row
 
 자동 상승 또는 사용자 `RAISE` 입력이 발생하면:
 
-1. playable 영역이 한 줄 위로 이동합니다.
-2. preview row가 bottom playable row로 들어옵니다.
-3. 새로운 preview row가 생성됩니다.
-4. death row가 차 있으면 game over가 됩니다.
+1. playable 영역이 한 줄 위로 이동
+2. preview row가 bottom playable row로 진입
+3. 새로운 preview row 생성
+4. death row가 차 있으면 game over
 
 사용자 입력:
 
 - `X`
 - `Left Shift`
 - `Right Shift`
-- 모바일 `RAISE` 버튼
+- 모바일 `RAISE`
 
-불꽃이 내려오는 중에도 chain/fall 상태가 아니라면 수동 RAISE를 사용할 수 있습니다.
+불꽃이 단순히 이동 중일 때도 수동/자동 상승이 가능합니다. chain/fall 처리 중에는 상승이 대기합니다.
 
-자동 상승 간격은 현재 구현 레퍼런스를 따라:
+자동 상승 간격:
 
 ```text
 initial 41.0 sec
@@ -84,20 +107,14 @@ initial 41.0 sec
 minimum 0.5 sec
 ```
 
-으로 동작합니다.
-
 ## Incoming Row Generation
 
-이전 구현처럼 각 셀마다 square bomb 확률을 굴리지 않습니다.
+새 preview row마다 다음이 독립적으로 결정됩니다.
 
-새 preview row마다:
+- fixed square/obstruction: 최대 1개
+- empty gap: 최대 1개
 
-- fixed square/obstruction: **최대 1개**
-- empty gap: **최대 1개**
-
-가 독립적으로 결정됩니다.
-
-현재 row-level 확률:
+현재 reference-derived row probability:
 
 ```text
 EASY   1/4
@@ -105,29 +122,13 @@ NORMAL 1/3
 HARD   1/2
 ```
 
-square와 gap이 같은 column으로 뽑히면 gap이 우선하므로 그 행에는 square가 없을 수 있습니다.
+square와 gap이 같은 column이면 gap이 우선합니다.
 
-이 확률은 공개된 피처폰 복원 구현의 코드에서 가져온 값이며 공식 원본 ROM에서 추출한 값은 아닙니다.
+## Square / Obstruction Bomb
 
-## Special Pieces
-
-현재 `Bomb.kind`:
-
-```text
-normal | bonus | obstruction
-```
-
-### Square / Obstruction Bomb
-
-- 사각형/탱크형
-- 심지 방향은 생성 시 고정
-- 사용자가 회전할 수 없음
-- 다른 폭탄과 마찬가지로 **자기 심지가 이미 폭발 중인 이웃을 향하면** 연쇄에 들어가 터질 수 있음
-- 일부 순간에는 심지가 빈 공간을 향해 바로 터뜨릴 수 없는 상태가 될 수 있음
-
-중요한 규칙:
-
-**폭탄이 gravity로 한 칸 아래로 떨어질 때 세로 심지는 뒤집힙니다.**
+- 회전 불가
+- 자기 심지가 폭발 중인 이웃을 향하면 정상적으로 연쇄되어 제거 가능
+- gravity로 한 칸 떨어질 때 vertical fuse가 반전
 
 ```text
 up   <-> down
@@ -135,18 +136,11 @@ left  -> left
 right -> right
 ```
 
-따라서 고정 square가 `up`을 향한다고 해서 그 방향이 게임 끝까지 영구 고정되는 것은 아닙니다. 아래 공간을 비워 낙하시킬 수 있으면 세로 방향이 반전됩니다.
+따라서 위를 보는 fixed square라도 아래 공간을 비워 낙하시킬 경우 방향이 바뀔 수 있습니다.
 
-이전 버그는 다음 두 가지였습니다.
+## Bonus / Long Bomb
 
-1. obstruction을 셀마다 확률 생성해서 한 행에 여러 개가 생길 수 있었음
-2. gravity 후에도 고정 심지 방향을 그대로 유지했음
-
-둘 다 현재 수정되었습니다.
-
-### Bonus / Long Bomb
-
-9/18/27 이상 연쇄 시 다음 긴 폭탄을 예약합니다.
+한 chain에서:
 
 ```text
 9+  -> length 2
@@ -154,19 +148,16 @@ right -> right
 27+ -> length 4
 ```
 
-이제 B2/B3/B4는 한 칸짜리 proxy가 아닙니다.
+긴 폭탄은 실제 가로 `2 / 3 / 4`칸짜리 rigid piece입니다.
 
-- 실제로 가로 `2 / 3 / 4`칸을 동시에 점유
-- 하나의 rigid piece로 취급
-- 위쪽에서 보드로 낙하
-- 착지 가능한 horizontal span을 탐색
-- 기존 폭탄이 받쳐 주는 지점을 anchor로 선택
-- anchor의 고정 fuse를 그 supporting bomb 쪽(`down`)으로 배치
-- anchor가 연쇄되면 긴 폭탄의 모든 segment가 한 piece로 폭발
-- 이후 각 segment 주변의 fuse-directed chain으로 연쇄가 계속 전달될 수 있음
-- gravity에서도 segment가 열별로 찢어지지 않고 함께 이동
+- 위에서 낙하
+- 기존 폭탄이 받치는 위치를 anchor로 선택
+- anchor의 외부 fuse는 supporting bomb을 향함
+- 나머지 segment의 숨겨진 내부 fuse는 anchor 방향을 향함
+- runtime propagation에 의해 anchor -> 내부 segment -> 바깥 연쇄 순서로 실제 시간차를 두고 진행
+- gravity에서도 조각나지 않음
 
-긴 폭탄을 폭발시키면 일반 점수 공식 외에 구현 레퍼런스 기반 추가 보너스가 한 piece당 적용됩니다.
+추가 bonus score:
 
 ```text
 length 2 -> +20,000
@@ -174,29 +165,24 @@ length 3 -> +90,000
 length 4 -> +200,000
 ```
 
-이 추가 점수 숫자는 공식 매뉴얼이 아니라 공개 복원 구현의 동작을 재현한 값입니다. 공식 매뉴얼에서 확정되는 것은 bonus bomb이 일반 폭탄보다 높은 점수를 준다는 사실입니다.
-
 ## Gravity
-
-폭발 후 gravity는 한 logical cell씩 해석해 최종 위치를 계산합니다.
 
 - normal/square bomb은 아래가 비면 낙하
 - 한 칸 낙하할 때마다 vertical fuse `up/down` 반전
-- horizontal fuse는 유지
-- long bonus piece는 모든 segment가 동시에 한 칸 내려갈 수 있을 때만 rigid group으로 낙하
-- preview row는 gravity 대상이 아님
+- horizontal fuse 유지
+- long bonus piece는 전체 segment가 함께 내려갈 수 있을 때만 rigid group으로 낙하
+- preview row는 gravity 대상 아님
 
-시각 이동 속도는 현재 약 `0.25 sec / cell`에 맞춰져 있습니다.
+시각 이동 속도는 약 `0.25 sec / cell`입니다.
 
 ## Fuse Readability
 
-- 밝은 아이보리 실선: 해당 폭탄의 fuse가 playable bomb를 향함
+- 밝은 아이보리 실선: fuse가 playable bomb를 향함
 - 금색 실선: edge flame rail을 향함
 - 어두운 점선: 빈 공간을 향함
 - 삼각형 tip: fuse 방향
-- preview row fuse: 흐리게 표시
-
-square의 고정 fuse가 당장 연결되지 않은 경우도 점선으로 명확히 보입니다. 이것은 즉시 회전할 수 있다는 뜻이 아니라, 아래를 비워 떨어뜨리거나 다른 위치 관계를 만들어야 한다는 뜻입니다.
+- preview row: 흐리게 표시
+- long bomb 내부 fuse: UI에서는 숨김
 
 ## Modes
 
@@ -207,7 +193,7 @@ square의 고정 fuse가 당장 연결되지 않은 경우도 점선으로 명�
 ```
 
 - `FLAMES 100`으로 시작
-- 새 flame drop이 시작될 때만 1 감소
+- 새 flame drop 시작 시에만 1 감소
 - 같은 불꽃의 pause/resume 중 추가 차감 없음
 
 ### ENDLESS
@@ -227,55 +213,43 @@ square의 고정 fuse가 당장 연결되지 않은 경우도 점선으로 명�
 ?difficulty=hard
 ```
 
-현재 difficulty는 특히 다음에 영향을 줍니다.
-
-- incoming row의 square bomb 확률
-- incoming row의 empty gap 확률
-- level-up bonus score
+현재 difficulty는 incoming square/gap 확률과 level-up bonus에 영향을 줍니다.
 
 ## Score
 
-기본 연쇄 점수:
+한 runtime chain이 완전히 종료된 시점의 **실제 폭발 수**로 점수를 계산합니다.
 
 ```text
 score += explodedBombCount * 100
        + max(0, combo - 2)^2 * 100
 ```
 
-같은 flame drop이 여러 chain을 점화하면 각각 별도의 combo로 계산합니다.
+따라서 플레이 중 회전으로 chain을 늘리거나 끊으면 실제 최종 점수도 그 결과를 반영합니다.
 
-long bonus bomb은 위의 기본 점수에 별도의 big-bomb bonus가 추가됩니다.
+같은 flame drop이 여러 chain을 점화하면 각각 별도 combo입니다.
 
 ## Level
 
-현재 level progress는 **폭발한 logical bomb cell 16개마다 1회** 발생합니다.
-
 ```text
-level progress threshold = 16
+level progress threshold = 16 exploded cells
 level cap = 99
-```
 
-한 chain에서 32개 이상을 터뜨리면 여러 번 level-up할 수 있습니다.
-
-level-up bonus:
-
-```text
 EASY    +50,000
 NORMAL +100,000
 HARD   +200,000
 ```
 
-99레벨 이후에도 16-unit progress를 채울 때 level-up score는 계속 지급합니다. 이는 2006년 실제 플레이어가 `100 ATTACK`에서 99레벨을 먼저 만든 뒤 level-up 점수를 계속 받는 전략을 설명한 기록과 맞춘 동작입니다.
+한 runtime chain에서 확정된 실제 폭발 수를 level progress에 더합니다.
 
 ## Timing
 
-현재 timing은 공식 ROM 측정값이 아니라 공개 복원 구현을 기준으로 한 reference-derived 값입니다.
+현재 값은 공개 복원 구현 기준 reference-derived 값입니다.
 
 ```text
 first flame movement grace ~= 4 sec
 flame travel             ~= 3 sec
 next flame delay         ~= 4 sec
-chain propagation step   ~= 0.4 sec
+runtime propagation edge ~= 0.4 sec
 auto raise initial       ~= 41 sec
 auto raise decrement     ~= 1.5 sec / raise
 auto raise minimum       ~= 0.5 sec
@@ -284,11 +258,10 @@ fall movement            ~= 0.25 sec / cell
 
 ## Remaining Unresolved Details
 
-아직 공식 피처폰 원본에서 직접 검증하지 못한 부분:
-
-- 정확한 flame 좌/우 RNG 패턴
-- 실제 원본의 frame-perfect animation timing
-- square/gap 확률이 삼성/파나소닉 모든 버전에서 동일한지
-- long bonus의 정확한 원본 보너스 점수 값
-- level threshold/bonus 숫자가 모든 기기 버전에서 동일한지
-- 원작 메뉴/option/help/high-score UI
+- 정확한 원본 flame 좌/우 RNG 패턴
+- 삼성/파나소닉 버전별 frame-perfect timing 차이
+- square/gap 출현 확률의 기기별 동일 여부
+- long bonus 원본 점수
+- level threshold/bonus 숫자의 기기별 동일 여부
+- Lv.99 이후 level-up score 처리
+- 원작 메뉴/options/instructions/high-score UI
