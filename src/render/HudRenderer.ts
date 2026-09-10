@@ -2,64 +2,76 @@ import type { GameSnapshot } from "../game/Types";
 
 export class HudRenderer {
   render(ctx: CanvasRenderingContext2D, snapshot: GameSnapshot): void {
-    ctx.fillStyle = "#236ca9";
-    ctx.fillRect(100, 10, 140, 26);
-    ctx.fillStyle = "#4eaae3";
-    ctx.fillRect(102, 12, 136, 22);
-    const attackText = snapshot.mode === "endless"
-      ? "ENDLESS"
-      : `FLAMES ( ${snapshot.flamesRemaining.toString().padStart(3, "0")} )`;
-    this.text(ctx, attackText, snapshot.mode === "endless" ? 148 : 110, 17, "#ffffff", 12);
-
-    ctx.fillStyle = "#19568f";
-    ctx.beginPath();
-    ctx.arc(38, 26, 32, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(22, 48);
-    ctx.lineTo(54, 48);
-    ctx.lineTo(38, 62);
-    ctx.fill();
-
-    ctx.fillStyle = "#7ad4f4";
-    ctx.beginPath();
-    ctx.arc(36, 24, 32, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(20, 46);
-    ctx.lineTo(52, 46);
-    ctx.lineTo(36, 60);
-    ctx.fill();
-
-    this.text(ctx, "LV", 16, 17, "#17488a", 16);
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(55, 24, 11, 0, Math.PI * 2);
-    ctx.fill();
-    this.text(ctx, snapshot.level.toString().padStart(2, "0"), 48, 19, "#17488a", 11);
-
-    ctx.fillStyle = "#cf8729";
-    ctx.fillRect(40, 46, 160, 26);
-    ctx.fillStyle = "#fab656";
-    ctx.fillRect(42, 48, 156, 22);
-    const scoreStr = snapshot.score.toString().padStart(8, "0");
-    this.text(ctx, scoreStr, 50, 52, "#ffffff", 14);
+    this.drawLevelBurst(ctx, snapshot.level);
+    this.drawModeReadout(ctx, snapshot);
+    this.drawScoreRibbon(ctx, snapshot.score);
 
     if (snapshot.debugMode) {
       const fireSeconds = Math.max(0, Math.ceil(snapshot.nextFlameIn));
       const pressureTicks = Math.max(0, Math.ceil(snapshot.pressureIn));
       const side = snapshot.nextFlameSide === "left" ? "L" : "R";
-      this.text(ctx, `P${pressureTicks.toString().padStart(2, "0")}`, 154, 76, snapshot.dangerWarning ? "#ffdf70" : "#c9f4ff", 9);
-      this.text(ctx, `F${fireSeconds.toString().padStart(2, "0")}`, 174, 76, snapshot.fireWarning ? "#ffdf70" : "#ffe36a", 9);
-      this.text(ctx, `S${side}`, 194, 76, snapshot.fireWarning ? "#ffdf70" : "#ffe36a", 9);
+      this.pixelText(ctx, `UP ${pressureTicks.toString().padStart(2, "0")}`, 137, 34, "#edf8ff", 8);
+      this.pixelText(ctx, `F ${fireSeconds.toString().padStart(2, "0")} ${side}`, 183, 34, "#fff0a3", 8);
     }
 
     if (snapshot.muted) {
-      this.text(ctx, "MUTE", 210, 38, "#ffdf70", 8);
+      this.pixelText(ctx, "MUTE", 207, 58, "#7b3f25", 7);
     }
   }
 
-  private text(
+  private drawLevelBurst(ctx: CanvasRenderingContext2D, level: number): void {
+    ctx.save();
+    ctx.translate(37, 26);
+    ctx.fillStyle = "#f6e883";
+    ctx.strokeStyle = "#d6be4f";
+    ctx.lineWidth = 1;
+
+    const points = 14;
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i += 1) {
+      const angle = -Math.PI / 2 + (Math.PI * i) / points;
+      const radius = i % 2 === 0 ? 33 : 25;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    this.pixelText(ctx, "LV.", -24, -11, "#315377", 11);
+    this.pixelText(ctx, level.toString().padStart(2, "0"), -6, -8, "#25476d", 19);
+    ctx.restore();
+  }
+
+  private drawModeReadout(ctx: CanvasRenderingContext2D, snapshot: GameSnapshot): void {
+    const label = snapshot.mode === "endless" ? "ENDLESS" : "FLAMES";
+    const value = snapshot.mode === "endless" ? "" : `(${snapshot.flamesRemaining.toString().padStart(3, "0")})`;
+
+    ctx.fillStyle = "rgba(244,251,255,0.64)";
+    ctx.fillRect(109, 8, 126, 24);
+    ctx.strokeStyle = "rgba(61,103,140,0.58)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(109.5, 8.5, 125, 23);
+
+    this.pixelText(ctx, label, 116, 11, "#55728d", 9);
+    if (value) this.pixelText(ctx, value, 173, 10, "#354c65", 13);
+  }
+
+  private drawScoreRibbon(ctx: CanvasRenderingContext2D, score: number): void {
+    ctx.fillStyle = "#d88c37";
+    ctx.fillRect(43, 44, 157, 25);
+    ctx.fillStyle = "#f3b85d";
+    ctx.fillRect(46, 46, 151, 20);
+    ctx.fillStyle = "rgba(255,245,185,0.56)";
+    ctx.fillRect(48, 47, 147, 5);
+
+    this.pixelText(ctx, "TOTAL", 110, 35, "#7b5a32", 8);
+    this.pixelText(ctx, score.toString().padStart(8, "0"), 73, 48, "#fff8d2", 15);
+  }
+
+  private pixelText(
     ctx: CanvasRenderingContext2D,
     value: string,
     x: number,
@@ -67,9 +79,10 @@ export class HudRenderer {
     color: string,
     size: number
   ): void {
-    ctx.font = `${size}px "Courier New", monospace`;
+    ctx.font = `bold ${size}px "Courier New", monospace`;
     ctx.textBaseline = "top";
-    ctx.fillStyle = "#10335e";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(35,57,76,0.55)";
     ctx.fillText(value, x + 1, y + 1);
     ctx.fillStyle = color;
     ctx.fillText(value, x, y);
