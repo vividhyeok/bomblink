@@ -5,22 +5,27 @@ export type Direction = "up" | "right" | "down" | "left";
 export type BombState = "normal" | "ignited" | "exploding" | "empty";
 export type BombKind = "normal" | "bonus" | "obstruction";
 export type BonusSize = 1 | 2 | 3 | 4;
+export type DifficultySetting = "easy" | "normal" | "hard";
 
 export type Bomb = {
   id: number;
   row: number;
   col: number;
   /**
-   * The original normal piece has one directional fuse. This remains an array for
-   * renderer/rule compatibility; reconstructed gameplay generates one direction.
+   * Normal and obstruction pieces have one fixed fuse direction. A multi-cell
+   * bonus piece exposes a fuse only on its anchor segment; the remaining segments
+   * keep this array empty because the whole piece explodes as one rigid object.
    */
   connectors: Direction[];
   kind: BombKind;
-  /**
-   * Normal/obstruction pieces use 1. Bonus pieces use 2/3/4 to preserve the
-   * documented long-bomb scoring weight until exact multi-cell geometry is verified.
-   */
+  /** Number of horizontal cells occupied by the whole bonus piece. */
   bonusSize: BonusSize;
+  /** Segments belonging to one long bonus bomb share this id. */
+  pieceId: number;
+  /** Zero-based position inside a long horizontal bonus piece. */
+  pieceIndex: number;
+  /** Only the externally fused segment of a bonus piece is chain-addressable. */
+  fuseActive: boolean;
   visualX: number;
   visualY: number;
   targetX: number;

@@ -10,6 +10,8 @@ const FIRE_OUTLINE = "#c34a17";
 const OPEN_FUSE = "#7d4249";
 const OPEN_OUTLINE = "#3b2025";
 
+type FuseStatus = "linked" | "fire" | "open" | "fixed";
+
 export class BoardRenderer {
   private readonly bombRenderer = new BombRenderer();
 
@@ -82,8 +84,15 @@ export class BoardRenderer {
     const previewRow = layout.rows - 1;
     for (let row = 0; row < layout.rows; row += 1) for (let col = 0; col < layout.cols; col += 1) {
       const bomb = cells[row]?.[col] ?? null;
-      const direction = bomb?.connectors[0];
-      if (bomb && direction) this.drawDirectionalFuse(ctx, layout, cells, bomb, direction, row < previewRow);
+      if (!bomb) continue;
+
+      // Long bonus bombs have hidden internal directions that only exist so the
+      // chain can propagate through the whole rigid piece. Draw only the single
+      // external anchor fuse, otherwise the piece looks like several bombs again.
+      if (bomb.kind === "bonus" && !bomb.fuseActive) continue;
+
+      const direction = bomb.connectors[0];
+      if (direction) this.drawDirectionalFuse(ctx, layout, cells, bomb, direction, row < previewRow);
     }
   }
 
@@ -150,7 +159,15 @@ export class BoardRenderer {
     const bomb = cells[cursor.row]?.[cursor.col] ?? null;
     const status = bomb ? this.fuseStatus(layout, cells, bomb) : "empty";
     const flash = Math.sin(cursor.blink * 11) > 0;
-    const statusColor = status === "linked" ? "#9cff82" : status === "fire" ? "#ffd85a" : status === "open" ? "#ff9c91" : "#ffffff";
+    const statusColor = status === "linked"
+      ? "#9cff82"
+      : status === "fire"
+        ? "#ffd85a"
+        : status === "fixed"
+          ? "#c7d0d8"
+          : status === "open"
+            ? "#ff9c91"
+            : "#ffffff";
     ctx.strokeStyle = "#121a22"; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = flash ? statusColor : "rgba(255,255,255,0.78)"; ctx.lineWidth = 2.5;
@@ -159,7 +176,9 @@ export class BoardRenderer {
     for (let i = -1; i <= 1; i += 1) ctx.fillRect(x + i * 5 - 1.5, y - radius - 4, 3, 3);
   }
 
-  private fuseStatus(layout: BoardLayout, cells: Cell[][], bomb: Bomb): "linked" | "fire" | "open" {
+  private fuseStatus(layout: BoardLayout, cells: Cell[][], bomb: Bomb): FuseStatus {
+    if (bomb.kind === "bonus" && !bomb.fuseActive) return "fixed";
+
     const direction = bomb.connectors[0];
     if (!direction) return "open";
     const delta = DELTA[direction];

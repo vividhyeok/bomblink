@@ -16,11 +16,6 @@ export const DELTA: Record<Direction, { row: number; col: number }> = {
   left: { row: 0, col: -1 }
 };
 
-/**
- * Original-style normal bombs have one directional fuse.
- * We keep the legacy connectors array shape so the renderer/effects can stay simple,
- * but normal gameplay now always generates exactly one direction.
- */
 export function makeConnectors(seed: number): Direction[] {
   return [DIRECTIONS[seed % DIRECTIONS.length]];
 }
@@ -38,15 +33,12 @@ export function hasConnector(bomb: Bomb | null, direction: Direction): boolean {
 }
 
 /**
- * Directed BombLink rule:
- * `a` is the bomb that is already burning/exploding, and `b` is the neighboring
- * candidate. The chain reaches `b` only when b's fuse points back toward a.
+ * Directed BombLink rule: A is already exploding. B joins only when B's fuse
+ * points back toward A. This is the wording used by the feature-phone manuals and
+ * is also how the surviving reconstruction source performs its incoming-hit test.
  */
 export function canConnect(a: Bomb | null, b: Bomb | null, directionFromA: Direction): boolean {
-  if (!a || !b || a.state === "empty" || b.state === "empty") {
-    return false;
-  }
-
+  if (!a || !b || a.state === "empty" || b.state === "empty") return false;
   return b.connectors.includes(OPPOSITE[directionFromA]);
 }
 
@@ -65,27 +57,45 @@ export type ChainNode = {
   order: number;
 };
 
+/**
+ * A long bonus bomb is one rigid piece occupying 2/3/4 cells. Only its anchor
+ * segment owns the external fuse, but once that anchor is ignited every segment
+ * participates in the explosion and can ignite neighboring bombs. The public
+ * Android reconstruction models the same behavior as several linked bomb objects;
+ * expanding the piece here gives the equivalent graph semantics without exposing
+ * fake rotatable fuses on every segment.
+ */
 export function findConnectedChain(cells: Cell[][], startRow: number, startCol: number): ChainNode[] {
   const start = cells[startRow]?.[startCol] ?? null;
-
-  if (!start || start.state === "empty") {
-    return [];
-  }
+  if (!start || start.state === "empty") return [];
 
   const rows = cells.length;
   const cols = cells[0]?.length ?? 0;
-  const queue: ChainNode[] = [{ bomb: start, parent: null, depth: 0, order: 0 }];
-  const visited = new Set<string>([key(startRow, startCol)]);
+  const queue: ChainNode[] = [];
+  const visitedIds = new Set<number>();
   const result: ChainNode[] = [];
-  let order = 1;
+  let order = 0;
 
-  while (queue.length > 0) {
-    const currentNode = queue.shift();
+  const enqueuePiece = (bomb: Bomb, parent: Bomb | null, depth: number): void => {
+    if (visitedIds.has(bomb.id)) return;
 
-    if (!currentNode) {
-      continue;
+    visitedIds.add(bomb.id);
+    queue.push({ bomb, parent, depth, order: order++ });
+
+    if (bomb.kind !== "bonus" || bomb.bonusSize <= 1) return;
+
+    for (const segment of findPieceMembers(cells, bomb.pieceId)) {
+      if (visitedIds.has(segment.id)) continue;
+      visitedIds.add(segment.id);
+      queue.push({ bomb: segment, parent: bomb, depth: depth + 1, order: order++ });
     }
+  };
 
+  enqueuePiece(start, null, 0);
+
+  let queueIndex = 0;
+  while (queueIndex < queue.length) {
+    const currentNode = queue[queueIndex++];
     const current = currentNode.bomb;
     result.push(currentNode);
 
@@ -93,27 +103,14 @@ export function findConnectedChain(cells: Cell[][], startRow: number, startCol: 
       const delta = DELTA[direction];
       const row = current.row + delta.row;
       const col = current.col + delta.col;
-
-      if (row < 0 || row >= rows || col < 0 || col >= cols) {
-        continue;
-      }
+      if (row < 0 || row >= rows || col < 0 || col >= cols) continue;
 
       const neighbor = cells[row][col];
-      const neighborKey = key(row, col);
-
-      if (!neighbor || visited.has(neighborKey) || (neighbor.state !== "normal" && neighbor.id !== start.id)) {
-        continue;
-      }
+      if (!neighbor || visitedIds.has(neighbor.id)) continue;
+      if (neighbor.state !== "normal" && neighbor.id !== start.id) continue;
 
       if (canConnect(current, neighbor, direction)) {
-        visited.add(neighborKey);
-        queue.push({
-          bomb: neighbor,
-          parent: current,
-          depth: currentNode.depth + 1,
-          order
-        });
-        order += 1;
+        enqueuePiece(neighbor, current, currentNode.depth + 1);
       }
     }
   }
@@ -122,86 +119,40 @@ export function findConnectedChain(cells: Cell[][], startRow: number, startCol: 
 }
 
 export function findCombinedConnectedChain(cells: Cell[][], starts: { row: number; col: number }[]): ChainNode[] {
-  if (starts.length === 0) {
-    return [];
-  }
+  if (starts.length === 0) return [];
 
-  const rows = cells.length;
-  const cols = cells[0]?.length ?? 0;
-  const queue: ChainNode[] = [];
-  const visited = new Set<string>();
+  const combined: ChainNode[] = [];
+  const seen = new Set<number>();
   let order = 0;
 
   for (const start of starts) {
-    const bomb = cells[start.row]?.[start.col];
-    if (bomb && bomb.state !== "empty") {
-      const k = key(start.row, start.col);
-      if (!visited.has(k)) {
-        visited.add(k);
-        queue.push({ bomb, parent: null, depth: 0, order });
-        order += 1;
-      }
+    const chain = findConnectedChain(cells, start.row, start.col);
+    for (const node of chain) {
+      if (seen.has(node.bomb.id)) continue;
+      seen.add(node.bomb.id);
+      combined.push({ ...node, order: order++ });
     }
   }
 
-  const result: ChainNode[] = [];
-  let queueIndex = 0;
-
-  while (queueIndex < queue.length) {
-    const currentNode = queue[queueIndex];
-    queueIndex += 1;
-
-    const current = currentNode.bomb;
-    result.push(currentNode);
-
-    for (const direction of DIRECTIONS) {
-      const delta = DELTA[direction];
-      const row = current.row + delta.row;
-      const col = current.col + delta.col;
-
-      if (row < 0 || row >= rows || col < 0 || col >= cols) {
-        continue;
-      }
-
-      const neighbor = cells[row][col];
-      const neighborKey = key(row, col);
-
-      if (!neighbor || visited.has(neighborKey)) {
-        continue;
-      }
-
-      if (canConnect(current, neighbor, direction)) {
-        visited.add(neighborKey);
-        queue.push({
-          bomb: neighbor,
-          parent: current,
-          depth: currentNode.depth + 1,
-          order
-        });
-        order += 1;
-      }
-    }
-  }
-
-  return result;
+  return combined;
 }
 
 /**
  * Reconstructed feature-phone score curve:
  * 100 * exploded-unit count + 100 * max(0, combo - 2)^2.
- *
- * `explodedUnits` can exceed the number of logical cells when a reconstructed
- * bonus/big bomb represents a documented 2/3/4-length piece.
  */
 export function scoreForExplosion(combo: number, explodedUnits = combo): number {
-  if (combo <= 0 || explodedUnits <= 0) {
-    return 0;
-  }
-
+  if (combo <= 0 || explodedUnits <= 0) return 0;
   const comboBonusBase = Math.max(0, combo - 2);
   return explodedUnits * 100 + comboBonusBase * comboBonusBase * 100;
 }
 
-function key(row: number, col: number): string {
-  return `${row}:${col}`;
+function findPieceMembers(cells: Cell[][], pieceId: number): Bomb[] {
+  const members: Bomb[] = [];
+  for (const row of cells) {
+    for (const bomb of row) {
+      if (bomb?.pieceId === pieceId) members.push(bomb);
+    }
+  }
+  return members.sort((a, b) => a.pieceIndex - b.pieceIndex);
 }
