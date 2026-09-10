@@ -38,15 +38,17 @@ const HUD_LABELS: HudLabel[] = ["FIRE", "FLAMES", "TOTAL", "ATTACK", "LEFT"];
 const STARTING_ROWS = 4;
 const DEATH_ROW = 0;
 
-// Reference-derived timing from the surviving Android feature-phone reconstruction.
+// Timing measured from the best surviving implementation-level reconstruction.
+// A flame is absent for ~3s, sits at the top for ~1s, then traverses the board
+// for ~3s. Explosions pause both flame travel and the auto-raise clock.
 const FIRST_FLAME_GRACE = 4;
 const FLAME_TRAVEL_SECONDS = 3;
 const NEXT_FLAME_DELAY = 4;
+const FLAME_PREVIEW_SECONDS = 1;
 const INITIAL_RAISE_DELAY = 41;
 const RAISE_DELAY_STEP = 1.5;
 const MIN_RAISE_DELAY = 0.5;
 const CHAIN_STEP_SECONDS = 0.4;
-const FIRE_WARNING_SECONDS = 4;
 const INITIAL_FLAMES = 100;
 
 const LEVEL_PROGRESS_UNITS = 16;
@@ -88,7 +90,12 @@ export class Game {
   private raiseInterval = INITIAL_RAISE_DELAY;
   private pressureTimer = INITIAL_RAISE_DELAY;
   private gameplayTime = 0;
-  private flameSide: FlameSide = Math.random() < 0.5 ? "left" : "right";
+
+  // Null38's reconstruction does not choose left/right independently each drop.
+  // It cycles through four states (R,R,L,L), with a 20% chance to skip one state.
+  private flamePatternState = Math.floor(Math.random() * 4);
+  private flameSide: FlameSide = this.sideForPattern(this.flamePatternState);
+
   private activeChain: RuntimeChain | null = null;
   private exploded: Bomb[] = [];
   private burns: BurnSegment[] = [];
@@ -135,8 +142,8 @@ export class Game {
       case "flamePassing": this.updateFlamePassing(dt); break;
       case "fuseBurning": this.updateFuseBurning(dt); break;
       case "exploding": this.updateExploding(); break;
-      case "falling":
-      case "spawning": this.updateFalling(); break;
+      case "falling": this.updateFalling(); break;
+      case "spawning": this.updateSpawning(dt); break;
       case "paused":
       case "levelClear":
       case "result":
@@ -250,14 +257,41 @@ export class Game {
     if (this.phase !== "flamePassing") return;
 
     if (this.flame.progress >= 1) {
-      this.flame = null;
-      if (this.mode === "flames100" && this.flamesRemaining <= 0) {
-        this.triggerResult();
-      } else {
-        this.scheduleNextFlame();
-        this.setPhase("idle");
-      }
+      this.finishFlameDrop();
     }
+  }
+
+  /**
+   * A board raise takes ~0.75s in the reference implementation. Flame travel is
+   * independent of that animation, so a falling flame keeps moving while the row
+   * rises. We defer collision scanning until the board settles to avoid testing a
+   * logical row against a visually half-shifted row, then resume normally.
+   */
+  private updateSpawning(dt: number): void {
+    if (this.flame) {
+      updateFlameLine(this.flame, dt);
+    } else {
+      this.nextFlameTimer = Math.max(0, this.nextFlameTimer - dt);
+    }
+
+    if (!this.boardSettled) return;
+
+    if (this.gameOverPending || this.board.hasBombInRow(DEATH_ROW)) {
+      this.triggerGameOver();
+      return;
+    }
+
+    if (this.flame) {
+      this.setPhase("flamePassing");
+      return;
+    }
+
+    if (this.nextFlameTimer <= 0) {
+      this.startFlame(this.flameSide);
+      return;
+    }
+
+    this.setPhase("idle");
   }
 
   /**
@@ -354,8 +388,15 @@ export class Game {
 
     for (const move of moves) {
       if (!this.input.consume(move.action)) continue;
+
       const row = clamp(this.cursor.row + move.row, 0, this.board.playableRows - 1);
-      const col = clamp(this.cursor.col + move.col, 0, this.board.layout.cols - 1);
+      let col = this.cursor.col;
+      if (move.col !== 0) {
+        // The reference player wraps horizontally from the right edge to the left
+        // (and vice versa), while vertical movement stops at the top/bottom.
+        col = (this.cursor.col + move.col + this.board.layout.cols) % this.board.layout.cols;
+      }
+
       if (row !== this.cursor.row || col !== this.cursor.col) {
         this.cursor.row = row;
         this.cursor.col = col;
@@ -404,6 +445,8 @@ export class Game {
     this.board.dropPendingBonus();
     this.gameOverPending = this.board.hasBombInRow(DEATH_ROW);
 
+    // Every raise makes the next automatic raise 1.5s sooner, down to 0.5s.
+    // A later clear can restore breathing room; see recoverRaiseAfterClear().
     this.raiseInterval = Math.max(MIN_RAISE_DELAY, this.raiseInterval - RAISE_DELAY_STEP);
     this.pressureTimer = this.raiseInterval;
     this.setPhase("spawning");
@@ -502,9 +545,6 @@ export class Game {
       const neighbor = this.board.get(row, col);
       if (!neighbor || neighbor.state !== "normal" || chain.visitedIds.has(neighbor.id)) continue;
 
-      // Critical fidelity rule: inspect the neighbor's fuse NOW, at propagation
-      // time, not when the root was first ignited. Player rotations during the
-      // previous 0.4s therefore change the result of this exact edge.
       if (canConnect(source, neighbor, direction)) {
         this.igniteRuntimeBomb(neighbor, source);
       }
@@ -526,7 +566,18 @@ export class Game {
     this.score += this.bigBonusScore(bombs);
     this.queueBonusForChain(chainLength);
     this.applyLevelProgress(chainLength);
+
+    // Critical pacing rule from the surviving reconstruction: after a clear,
+    // bombUpSpeed is raised to at least the number of cleared bombs and the auto
+    // raise timer is restarted. Omitting this makes late game collapse toward a
+    // permanent 0.5s-per-row death spiral.
+    this.recoverRaiseAfterClear(chainLength);
     this.shake.trigger(chainLength);
+  }
+
+  private recoverRaiseAfterClear(explodedUnits: number): void {
+    this.raiseInterval = Math.max(this.raiseInterval, explodedUnits);
+    this.pressureTimer = this.raiseInterval;
   }
 
   private queueBonusForChain(chainLength: number): void {
@@ -585,19 +636,46 @@ export class Game {
     this.particles.push(...effect.particles);
   }
 
+  private finishFlameDrop(): void {
+    this.flame = null;
+    if (this.mode === "flames100" && this.flamesRemaining <= 0) {
+      this.triggerResult();
+      return;
+    }
+    this.scheduleNextFlame();
+    this.setPhase("idle");
+  }
+
   private scheduleNextFlame(delay = NEXT_FLAME_DELAY): void {
-    this.flameSide = Math.random() < 0.5 ? "left" : "right";
+    this.advanceFlamePattern();
+    this.flameSide = this.sideForPattern(this.flamePatternState);
     this.nextFlameRow = null;
     this.nextFlameTimer = delay;
   }
 
+  private advanceFlamePattern(): void {
+    // Reference implementation logic:
+    // fireCh += (Random.Range(0,10) < 2 ? 1 : 0);
+    // if (fireCh >= 3) fireCh -= 3; else fireCh++;
+    let next = this.flamePatternState + (Math.random() < 0.2 ? 1 : 0);
+    next = next >= 3 ? next - 3 : next + 1;
+    this.flamePatternState = next;
+  }
+
+  private sideForPattern(state: number): FlameSide {
+    return state <= 1 ? "right" : "left";
+  }
+
   private isDangerWarning(): boolean {
     const highest = this.board.highestOccupiedRow();
-    return highest !== null && (highest <= DEATH_ROW + 1 || this.gameOverPending);
+    // The reference build changes into danger presentation three rows from the top,
+    // then intensifies it on the row immediately below the death row.
+    return highest !== null && (highest <= DEATH_ROW + 2 || this.gameOverPending);
   }
 
   private isFireWarning(): boolean {
-    return (this.phase === "idle" || this.phase === "rotating") && this.nextFlameTimer <= FIRE_WARNING_SECONDS;
+    return (this.phase === "idle" || this.phase === "rotating" || this.phase === "spawning") &&
+      this.nextFlameTimer <= FLAME_PREVIEW_SECONDS;
   }
 
   private triggerGameOver(): void {
@@ -639,7 +717,8 @@ export class Game {
     this.raiseInterval = INITIAL_RAISE_DELAY;
     this.pressureTimer = this.raiseInterval;
     this.gameplayTime = 0;
-    this.flameSide = Math.random() < 0.5 ? "left" : "right";
+    this.flamePatternState = Math.floor(Math.random() * 4);
+    this.flameSide = this.sideForPattern(this.flamePatternState);
     this.nextFlameRow = null;
     this.activeChain = null;
     this.exploded = [];
